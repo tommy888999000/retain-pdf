@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from translation.deepseek_client import translate_batch
@@ -17,9 +18,11 @@ def translate_items_to_path(
     items: list,
     translation_path: Path,
     page_idx: int,
-    api_key: str,
+    api_key: str = "",
     batch_size: int = 8,
+    workers: int = 1,
     model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
     progress_label: str = "",
 ) -> dict:
     ensure_translation_template(items, translation_path, page_idx=page_idx)
@@ -30,20 +33,43 @@ def translate_items_to_path(
     total_batches = len(batches)
 
     label = progress_label or f"page {page_idx + 1}"
-    for index, batch in enumerate(batches, start=1):
-        translated = translate_batch(batch, api_key=api_key, model=model)
-        for item in payload:
-            item_id = item.get("item_id")
-            if item_id not in translated:
-                continue
-            protected_translated_text = translated[item_id]
-            item["protected_translated_text"] = protected_translated_text
-            item["translated_text"] = restore_inline_formulas(
-                protected_translated_text,
-                item.get("formula_map", []),
-            )
-        save_translations(translation_path, payload)
-        print(f"{label}: translated batch {index}/{total_batches}")
+    if workers <= 1:
+        for index, batch in enumerate(batches, start=1):
+            translated = translate_batch(batch, api_key=api_key, model=model, base_url=base_url)
+            for item in payload:
+                item_id = item.get("item_id")
+                if item_id not in translated:
+                    continue
+                protected_translated_text = translated[item_id]
+                item["protected_translated_text"] = protected_translated_text
+                item["translated_text"] = restore_inline_formulas(
+                    protected_translated_text,
+                    item.get("formula_map", []),
+                )
+            save_translations(translation_path, payload)
+            print(f"{label}: translated batch {index}/{total_batches}")
+    else:
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+            futures = {
+                executor.submit(translate_batch, batch, api_key=api_key, model=model, base_url=base_url): batch
+                for batch in batches
+            }
+            for future in as_completed(futures):
+                translated = future.result()
+                for item in payload:
+                    item_id = item.get("item_id")
+                    if item_id not in translated:
+                        continue
+                    protected_translated_text = translated[item_id]
+                    item["protected_translated_text"] = protected_translated_text
+                    item["translated_text"] = restore_inline_formulas(
+                        protected_translated_text,
+                        item.get("formula_map", []),
+                    )
+                completed += 1
+                save_translations(translation_path, payload)
+                print(f"{label}: translated batch {completed}/{total_batches}")
 
     translated_count = sum(1 for item in payload if (item.get("translated_text") or "").strip())
     return {

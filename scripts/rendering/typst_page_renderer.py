@@ -5,6 +5,7 @@ import fitz
 
 from common.config import DEFAULT_FONT_SIZE, OUTPUT_DIR
 from rendering.pdf_overlay import save_optimized_pdf
+from rendering.pdf_overlay import strip_page_links
 from rendering.render_payloads import RenderBlock
 from rendering.render_payloads import build_render_blocks
 
@@ -89,6 +90,7 @@ def build_single_page_typst_pdf(
     temp_doc = fitz.open()
     temp_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
     page = temp_doc[0]
+    strip_page_links(page)
     overlay_translated_items_on_page(page, translated_items, stem=f"page-{page_idx + 1}")
 
     save_optimized_pdf(temp_doc, output_pdf_path)
@@ -106,7 +108,9 @@ def build_book_typst_pdf(
         for page_idx, translated_items in sorted(translated_pages.items()):
             if page_idx < 0 or page_idx >= len(doc):
                 continue
-            overlay_translated_items_on_page(doc[page_idx], translated_items, stem=f"book-page-{page_idx + 1}")
+            page = doc[page_idx]
+            strip_page_links(page)
+            overlay_translated_items_on_page(page, translated_items, stem=f"book-page-{page_idx + 1}")
         save_optimized_pdf(doc, output_pdf_path)
     finally:
         doc.close()

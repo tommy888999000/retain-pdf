@@ -16,10 +16,19 @@ def save_optimized_pdf(doc: fitz.Document, output_pdf_path: Path) -> None:
     doc.ez_save(output_pdf_path)
 
 
+def strip_page_links(page: fitz.Page) -> None:
+    for link in page.get_links():
+        try:
+            page.delete_link(link)
+        except Exception:
+            continue
+
+
 def extract_single_page_pdf(source_pdf_path: Path, output_pdf_path: Path, page_idx: int) -> None:
     source_doc = fitz.open(source_pdf_path)
     output_doc = fitz.open()
     output_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
+    strip_page_links(output_doc[0])
     save_optimized_pdf(output_doc, output_pdf_path)
     output_doc.close()
     source_doc.close()
@@ -149,6 +158,7 @@ def build_dev_pdf(
 ) -> None:
     doc = fitz.open(source_pdf_path)
     page = doc[page_idx]
+    strip_page_links(page)
     page.insert_font(fontname="noto_cjk", fontfile=str(font_path))
 
     for item in translated_items:
@@ -179,6 +189,7 @@ def build_single_page_dev_pdf(
     source_doc = fitz.open(source_pdf_path)
     temp_doc.insert_pdf(source_doc, from_page=page_idx, to_page=page_idx)
     page = temp_doc[0]
+    strip_page_links(page)
     page.insert_font(fontname="noto_cjk", fontfile=str(font_path))
 
     for item in translated_items:

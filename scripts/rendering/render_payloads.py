@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 
@@ -34,9 +35,22 @@ def _normalize_formula_for_latex_math(formula_text: str) -> str:
     expr = " ".join(formula_text.strip().split())
     if not expr:
         return expr
+    expr = re.sub(r"\\begin\{array\}\s*\{[^{}]*\}\s*", "", expr)
+    expr = re.sub(r"\s*\\end\{array\}", "", expr)
+    expr = re.sub(r"\\cal\s+([A-Za-z])", r"\\mathcal{\1}", expr)
     if expr.startswith(("_", "^")):
         expr = "{} " + expr
     return expr
+
+
+def _looks_like_citation(formula_text: str) -> bool:
+    expr = " ".join(formula_text.strip().split())
+    return bool(re.fullmatch(r"\[\s*\d+(?:\s*[-,]\s*\d+)*\s*\]", expr))
+
+
+def _normalize_plain_citation(formula_text: str) -> str:
+    digits = re.findall(r"\d+", formula_text)
+    return f"[{','.join(digits)}]" if digits else formula_text.strip()
 
 
 def build_markdown_paragraph(item: dict) -> str:
@@ -48,6 +62,9 @@ def build_markdown_paragraph(item: dict) -> str:
     for part in parts:
         if part.startswith("[[FORMULA_"):
             formula_text = formula_lookup.get(part, part)
+            if _looks_like_citation(formula_text):
+                chunks.append(_normalize_plain_citation(formula_text))
+                continue
             chunks.append(f"${_normalize_formula_for_latex_math(formula_text)}$")
         else:
             text = part.strip()

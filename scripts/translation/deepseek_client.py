@@ -1,12 +1,15 @@
 import json
 import os
+import threading
 import time
 from typing import Any
 
 import requests
 
 
-DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"
+DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
+DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
+_THREAD_LOCAL = threading.local()
 
 
 def build_messages(batch: list[dict]) -> list[dict[str, str]]:
@@ -47,16 +50,44 @@ def extract_json_text(content: str) -> str:
     return text[start : end + 1]
 
 
-def translate_batch(batch: list[dict], api_key: str, model: str = "deepseek-chat") -> dict[str, str]:
+def normalize_base_url(base_url: str) -> str:
+    normalized = (base_url or DEFAULT_BASE_URL).strip().rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        normalized = normalized[: -len("/chat/completions")]
+    return normalized
+
+
+def chat_completions_url(base_url: str) -> str:
+    return f"{normalize_base_url(base_url)}/chat/completions"
+
+
+def build_headers(api_key: str) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if api_key.strip():
+        headers["Authorization"] = f"Bearer {api_key.strip()}"
+    return headers
+
+
+def get_session() -> requests.Session:
+    session = getattr(_THREAD_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        _THREAD_LOCAL.session = session
+    return session
+
+
+def translate_batch(
+    batch: list[dict],
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = DEFAULT_BASE_URL,
+) -> dict[str, str]:
     last_error: Exception | None = None
     for attempt in range(1, 5):
         try:
-            response = requests.post(
-                DEEPSEEK_API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
+            response = get_session().post(
+                chat_completions_url(base_url),
+                headers=build_headers(api_key),
                 json={
                     "model": model,
                     "temperature": 0.2,
@@ -90,8 +121,8 @@ def translate_batch(batch: list[dict], api_key: str, model: str = "deepseek-chat
     return result
 
 
-def get_api_key(explicit_api_key: str = "") -> str:
-    api_key = explicit_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("Missing DeepSeek API key. Set DEEPSEEK_API_KEY or pass --api-key.")
+def get_api_key(explicit_api_key: str = "", env_var: str = DEFAULT_API_KEY_ENV, required: bool = True) -> str:
+    api_key = explicit_api_key or os.environ.get(env_var, "")
+    if required and not api_key:
+        raise RuntimeError(f"Missing API key. Set {env_var} or pass --api-key.")
     return api_key
