@@ -1,3 +1,4 @@
+import re
 from translation.formula_protection import restore_inline_formulas
 
 
@@ -184,6 +185,10 @@ def apply_translated_text_map(payload: list[dict], translated: dict[str, str]) -
         formula_map = items[0].get("group_formula_map", [])
         restored = restore_inline_formulas(protected_translated_text, formula_map)
         for item in items:
+            if not item.get("should_translate", True):
+                item["group_protected_translated_text"] = ""
+                item["group_translated_text"] = ""
+                continue
             item["group_protected_translated_text"] = protected_translated_text
             item["group_translated_text"] = restored
 

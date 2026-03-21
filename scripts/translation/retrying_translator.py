@@ -1,10 +1,14 @@
 import json
 import time
+import re
 
 from translation.deepseek_client import build_messages
 from translation.deepseek_client import build_single_item_fallback_messages
 from translation.deepseek_client import extract_json_text
 from translation.deepseek_client import request_chat_content
+
+
+PLACEHOLDER_RE = re.compile(r"\[\[FORMULA_\d+]]")
 
 
 def _parse_translation_payload(content: str) -> dict[str, str]:
@@ -19,15 +23,37 @@ def _parse_translation_payload(content: str) -> dict[str, str]:
     return result
 
 
+def _placeholders(text: str) -> set[str]:
+    return set(PLACEHOLDER_RE.findall(text or ""))
+
+
+def _validate_batch_result(batch: list[dict], result: dict[str, str]) -> None:
+    expected_ids = {item["item_id"] for item in batch}
+    actual_ids = set(result)
+    if actual_ids != expected_ids:
+        missing = sorted(expected_ids - actual_ids)
+        extra = sorted(actual_ids - expected_ids)
+        raise ValueError(f"translation item_id mismatch: missing={missing} extra={extra}")
+
+    for item in batch:
+        item_id = item["item_id"]
+        source_placeholders = _placeholders(item.get("protected_source_text", ""))
+        translated_placeholders = _placeholders(result.get(item_id, ""))
+        if not translated_placeholders.issubset(source_placeholders):
+            unexpected = sorted(translated_placeholders - source_placeholders)
+            raise ValueError(f"{item_id}: unexpected placeholders in translation: {unexpected}")
+
+
 def _translate_single_item_plain_text(
     item: dict,
     api_key: str = "",
     model: str = "deepseek-chat",
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
+    domain_guidance: str = "",
 ) -> dict[str, str]:
     content = request_chat_content(
-        build_single_item_fallback_messages(item),
+        build_single_item_fallback_messages(item, domain_guidance=domain_guidance),
         api_key=api_key,
         model=model,
         base_url=base_url,
@@ -45,9 +71,10 @@ def _translate_batch_once(
     model: str = "deepseek-chat",
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
+    domain_guidance: str = "",
 ) -> dict[str, str]:
     content = request_chat_content(
-        build_messages(batch),
+        build_messages(batch, domain_guidance=domain_guidance),
         api_key=api_key,
         model=model,
         base_url=base_url,
@@ -56,7 +83,9 @@ def _translate_batch_once(
         timeout=120,
         request_label=request_label,
     )
-    return _parse_translation_payload(content)
+    result = _parse_translation_payload(content)
+    _validate_batch_result(batch, result)
+    return result
 
 
 def translate_batch(
@@ -65,6 +94,7 @@ def translate_batch(
     model: str = "deepseek-chat",
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
+    domain_guidance: str = "",
 ) -> dict[str, str]:
     last_error: Exception | None = None
     for attempt in range(1, 5):
@@ -81,6 +111,7 @@ def translate_batch(
                 model=model,
                 base_url=base_url,
                 request_label=f"{request_label} req#{attempt}" if request_label else "",
+                domain_guidance=domain_guidance,
             )
             if request_label:
                 elapsed = time.perf_counter() - started
@@ -107,6 +138,7 @@ def translate_batch(
                                 model=model,
                                 base_url=base_url,
                                 request_label=f"{request_label} item {item_index}/{len(batch)} {item['item_id']}",
+                                domain_guidance=domain_guidance,
                             )
                         )
                     return result
@@ -116,6 +148,7 @@ def translate_batch(
                     model=model,
                     base_url=base_url,
                     request_label=f"{request_label} plain-text fallback {batch[0]['item_id']}",
+                    domain_guidance=domain_guidance,
                 )
             time.sleep(min(8, 2 * attempt))
 
@@ -129,5 +162,6 @@ def translate_items_to_text_map(
     api_key: str = "",
     model: str = "deepseek-chat",
     base_url: str = "https://api.deepseek.com/v1",
+    domain_guidance: str = "",
 ) -> dict[str, str]:
-    return translate_batch(items, api_key=api_key, model=model, base_url=base_url)
+    return translate_batch(items, api_key=api_key, model=model, base_url=base_url, domain_guidance=domain_guidance)

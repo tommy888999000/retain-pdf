@@ -4,12 +4,10 @@ from pathlib import Path
 from ocr.json_extractor import extract_text_items
 from translation.continuations import annotate_continuation_context_global
 from translation.payload_ops import GROUP_ITEM_PREFIX
-from translation.payload_ops import apply_classification_labels
-from translation.payload_ops import apply_scientific_paper_skips
-from translation.payload_ops import apply_title_skip
 from translation.payload_ops import apply_translated_text_map
 from translation.payload_ops import pending_translation_items
 from translation.payload_ops import summarize_payload
+from translation.policy_flow import apply_translation_policies
 from translation.retrying_translator import translate_batch
 from translation.translation_workflow import default_page_translation_name
 from translation.translation_workflow import translate_items_to_path
@@ -96,29 +94,22 @@ def apply_page_policies(
     sci_cutoff_page_idx: int | None,
     sci_cutoff_block_idx: int | None,
 ) -> int:
-    from classification.page_classifier import classify_payload_items
-
     classified_items = 0
     for page_idx in sorted(page_payloads):
         payload = page_payloads[page_idx]
-        if mode == "precise":
-            labels = classify_payload_items(
-                payload,
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                batch_size=classify_batch_size,
-            )
-            classified_items += apply_classification_labels(payload, labels)
-        if mode == "sci":
-            apply_scientific_paper_skips(
-                payload,
-                page_idx=page_idx,
-                cutoff_page_idx=sci_cutoff_page_idx,
-                cutoff_block_idx=sci_cutoff_block_idx,
-            )
-        elif skip_title_translation:
-            apply_title_skip(payload)
+        page_classified, _ = apply_translation_policies(
+            payload=payload,
+            mode=mode,
+            classify_batch_size=classify_batch_size,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            skip_title_translation=skip_title_translation,
+            page_idx=page_idx,
+            sci_cutoff_page_idx=sci_cutoff_page_idx,
+            sci_cutoff_block_idx=sci_cutoff_block_idx,
+        )
+        classified_items += page_classified
     return classified_items
 
 
@@ -141,6 +132,7 @@ def translate_pending_units(
     api_key: str,
     model: str,
     base_url: str,
+    domain_guidance: str = "",
 ) -> None:
     flat_payload: list[dict] = []
     item_to_page: dict[str, int] = {}
@@ -166,6 +158,7 @@ def translate_pending_units(
                 model=model,
                 base_url=base_url,
                 request_label=batch_label,
+                domain_guidance=domain_guidance,
             )
             apply_translated_text_map(flat_payload, translated)
             touched_pages = touched_pages_for_batch(translated, item_to_page, group_to_pages)
@@ -182,6 +175,7 @@ def translate_pending_units(
                 model=model,
                 base_url=base_url,
                 request_label=f"book: batch {index}/{total_batches}",
+                domain_guidance=domain_guidance,
             ): (index, batch)
             for index, batch in enumerate(batches, start=1)
         }
@@ -223,6 +217,7 @@ def translate_book_with_global_continuations(
     skip_title_translation: bool,
     sci_cutoff_page_idx: int | None,
     sci_cutoff_block_idx: int | None,
+    domain_guidance: str = "",
 ) -> tuple[dict[int, list[dict]], list[dict]]:
     translation_paths, page_payloads = load_page_payloads(
         data=data,
@@ -257,6 +252,7 @@ def translate_book_with_global_continuations(
         api_key=api_key,
         model=model,
         base_url=base_url,
+        domain_guidance=domain_guidance,
     )
 
     translated_pages_map = {page_idx: load_translations(translation_paths[page_idx]) for page_idx in sorted(page_payloads)}

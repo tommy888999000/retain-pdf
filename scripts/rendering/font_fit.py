@@ -1,7 +1,7 @@
 import re
 from statistics import median
 
-from common.config import DEFAULT_FONT_SIZE
+from common import config
 
 
 MIN_FONT_SIZE_PT = 8.4
@@ -10,8 +10,8 @@ ZH_FONT_SCALE = 0.91
 BLOCK_SCALE_MIN = 0.985
 BLOCK_SCALE_MAX = 1.015
 DEFAULT_LEADING_EM = 0.40
-BODY_LEADING_MIN = 0.45
-BODY_LEADING_MAX = 0.55
+BODY_LEADING_MIN = 0.58
+BODY_LEADING_MAX = 0.82
 BODY_FORMULA_RATIO_MAX = 0.5
 
 
@@ -122,15 +122,15 @@ def inner_bbox(item: dict) -> list[float]:
     x0, y0, x1, y1 = bbox
     width = x1 - x0
     height = y1 - y0
-    shrink_x = width * 0.03
-    shrink_y = height * 0.03
+    shrink_x = width * config.INNER_BBOX_SHRINK_X
+    shrink_y = height * config.INNER_BBOX_SHRINK_Y
 
     rho_x = occupied_ratio_x(item)
     rho_y = occupied_ratio(item)
     if rho_x > 0.82:
-        shrink_x = width * 0.02
+        shrink_x = width * config.INNER_BBOX_DENSE_SHRINK_X
     if rho_y > 0.82:
-        shrink_y = height * 0.02
+        shrink_y = height * config.INNER_BBOX_DENSE_SHRINK_Y
 
     nx0 = x0 + shrink_x
     nx1 = x1 - shrink_x
@@ -194,7 +194,7 @@ def page_baseline_font_size(items: list[dict]) -> tuple[float, float, float, flo
     baseline_line_height = median(line_heights) if line_heights else 0.0
     metric = baseline_line_pitch or baseline_line_height
     if metric <= 0:
-        return DEFAULT_FONT_SIZE, 0.0, 0.0, 0.0
+        return config.DEFAULT_FONT_SIZE, 0.0, 0.0, 0.0
     page_font_size = max(
         MIN_FONT_SIZE_PT,
         min(MAX_FONT_SIZE_PT, metric * ZH_FONT_SCALE),
@@ -218,9 +218,9 @@ def estimate_font_size_pt(
 ) -> float:
     del density_baseline
     if item.get("block_type") != "text":
-        return DEFAULT_FONT_SIZE
+        return config.DEFAULT_FONT_SIZE
     if not item.get("_is_body_text_candidate", False):
-        return DEFAULT_FONT_SIZE
+        return config.DEFAULT_FONT_SIZE
     block_scale = 1.0
     block_line_pitch = median_line_pitch(item)
     block_line_height = median_line_height(item)
@@ -228,13 +228,18 @@ def estimate_font_size_pt(
         block_scale = clamp(block_line_pitch / page_line_pitch, BLOCK_SCALE_MIN, BLOCK_SCALE_MAX)
     elif page_line_height > 0 and block_line_height > 0:
         block_scale = clamp(block_line_height / page_line_height, BLOCK_SCALE_MIN, BLOCK_SCALE_MAX)
-    return round(clamp(page_font_size * block_scale, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
+    return round(
+        clamp(page_font_size * block_scale * config.BODY_FONT_SIZE_FACTOR, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT),
+        2,
+    )
 
 
 def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float) -> float:
     if item.get("_is_body_text_candidate", False):
         if page_line_pitch > 0 and font_size_pt > 0:
-            estimated = (page_line_pitch / font_size_pt) - 1.0
-            return round(clamp(estimated, BODY_LEADING_MIN, BODY_LEADING_MAX), 2)
-        return 0.50
-    return DEFAULT_LEADING_EM
+            ocr_estimated = (page_line_pitch / font_size_pt) - 1.0
+            zh_target = 0.66
+            mixed = (ocr_estimated * 0.35) + (zh_target * 0.65)
+            return round(clamp(mixed * config.BODY_LEADING_FACTOR, BODY_LEADING_MIN, BODY_LEADING_MAX), 2)
+        return round(clamp(0.66 * config.BODY_LEADING_FACTOR, BODY_LEADING_MIN, BODY_LEADING_MAX), 2)
+    return round(DEFAULT_LEADING_EM * config.BODY_LEADING_FACTOR, 2)

@@ -1,7 +1,15 @@
 import argparse
 from pathlib import Path
 
+from common.config import BODY_FONT_SIZE_FACTOR
+from common.config import BODY_LEADING_FACTOR
+from common.config import INNER_BBOX_DENSE_SHRINK_X
+from common.config import INNER_BBOX_DENSE_SHRINK_Y
+from common.config import INNER_BBOX_SHRINK_X
+from common.config import INNER_BBOX_SHRINK_Y
 from common.config import OUTPUT_DIR, SOURCE_PDF
+from common.config import TYPST_DEFAULT_FONT_FAMILY
+from common.config import apply_layout_tuning
 from pipeline.book_pipeline import build_book_pipeline
 
 
@@ -50,11 +58,38 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Extract only the selected page range into the output PDF instead of keeping the full source book.",
     )
+    parser.add_argument(
+        "--render-mode",
+        type=str,
+        default="typst",
+        choices=["typst", "direct", "dual"],
+        help="Book output mode. direct writes translated text back into the original PDF. dual places the original page on the left and translated page on the right.",
+    )
+    parser.add_argument(
+        "--typst-font-family",
+        type=str,
+        default=TYPST_DEFAULT_FONT_FAMILY,
+        help="Base Typst font family name.",
+    )
+    parser.add_argument("--body-font-size-factor", type=float, default=BODY_FONT_SIZE_FACTOR)
+    parser.add_argument("--body-leading-factor", type=float, default=BODY_LEADING_FACTOR)
+    parser.add_argument("--inner-bbox-shrink-x", type=float, default=INNER_BBOX_SHRINK_X)
+    parser.add_argument("--inner-bbox-shrink-y", type=float, default=INNER_BBOX_SHRINK_Y)
+    parser.add_argument("--inner-bbox-dense-shrink-x", type=float, default=INNER_BBOX_DENSE_SHRINK_X)
+    parser.add_argument("--inner-bbox-dense-shrink-y", type=float, default=INNER_BBOX_DENSE_SHRINK_Y)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    apply_layout_tuning(
+        body_font_size_factor=args.body_font_size_factor,
+        body_leading_factor=args.body_leading_factor,
+        inner_bbox_shrink_x=args.inner_bbox_shrink_x,
+        inner_bbox_shrink_y=args.inner_bbox_shrink_y,
+        inner_bbox_dense_shrink_x=args.inner_bbox_dense_shrink_x,
+        inner_bbox_dense_shrink_y=args.inner_bbox_dense_shrink_y,
+    )
     output_pdf_path = OUTPUT_DIR / args.output
     summary = build_book_pipeline(
         source_pdf_path=Path(args.source_pdf),
@@ -64,6 +99,8 @@ def main() -> None:
         end_page=args.end_page,
         compile_workers=args.compile_workers or None,
         extract_selected_pages=args.extract_selected_pages,
+        render_mode=args.render_mode,
+        typst_font_family=args.typst_font_family,
     )
     print(f"built book pdf: {output_pdf_path}")
     print(f"pages rendered: {summary['pages_rendered']}")

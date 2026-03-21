@@ -2,14 +2,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from classification.page_classifier import classify_payload_items
-from translation.payload_ops import apply_classification_labels
-from translation.payload_ops import apply_scientific_paper_skips
-from translation.payload_ops import apply_title_skip
 from translation.payload_ops import apply_translated_text_map
 from translation.payload_ops import pending_translation_items
 from translation.payload_ops import summarize_payload
 from translation.continuations import annotate_continuation_context
+from translation.policy_flow import apply_translation_policies
 from translation.retrying_translator import translate_batch
 from translation.translations import ensure_translation_template, load_translations, save_translations
 
@@ -47,26 +44,23 @@ def translate_items_to_path(
         save_translations(translation_path, payload)
         print(f"{label}: annotated {continuation_items} continuation-context items", flush=True)
 
-    classified_items = 0
-    if mode == "precise":
-        labels = classify_payload_items(
-            payload,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            batch_size=classify_batch_size,
-        )
-        classified_items = apply_classification_labels(payload, labels)
+    classified_items, skip_summary = apply_translation_policies(
+        payload=payload,
+        mode=mode,
+        classify_batch_size=classify_batch_size,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        skip_title_translation=skip_title_translation,
+        page_idx=page_idx,
+        sci_cutoff_page_idx=sci_cutoff_page_idx,
+        sci_cutoff_block_idx=sci_cutoff_block_idx,
+    )
+    if classified_items:
         save_translations(translation_path, payload)
         print(f"{label}: classified {classified_items} page items")
 
     if mode == "sci":
-        skip_summary = apply_scientific_paper_skips(
-            payload,
-            page_idx=page_idx,
-            cutoff_page_idx=sci_cutoff_page_idx,
-            cutoff_block_idx=sci_cutoff_block_idx,
-        )
         if skip_summary["title_skipped"] or skip_summary["tail_skipped"]:
             save_translations(translation_path, payload)
             if skip_summary["title_skipped"]:
@@ -74,10 +68,9 @@ def translate_items_to_path(
             if skip_summary["tail_skipped"]:
                 print(f"{label}: skipped {skip_summary['tail_skipped']} items after the last title cutoff")
     elif skip_title_translation:
-        skipped_titles = apply_title_skip(payload)
-        if skipped_titles:
+        if skip_summary["title_skipped"]:
             save_translations(translation_path, payload)
-            print(f"{label}: skipped {skipped_titles} title items")
+            print(f"{label}: skipped {skip_summary['title_skipped']} title items")
 
     pending = pending_translation_items(payload)
     batches = chunked(pending, max(1, batch_size))

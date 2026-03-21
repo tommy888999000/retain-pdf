@@ -83,6 +83,58 @@ def _box_capacity_units(inner: list[float], font_size_pt: float, leading_em: flo
     return lines * chars_per_line * 0.98
 
 
+def _text_demand_units(protected_text: str, formula_map: list[dict]) -> float:
+    if not protected_text:
+        return 0.0
+    formula_lookup = {entry["placeholder"]: entry["formula_text"] for entry in formula_map}
+    return sum(_token_units(token, formula_lookup) for token in _tokenize_protected_text(protected_text))
+
+
+def _fit_translated_block_metrics(
+    item: dict,
+    protected_text: str,
+    formula_map: list[dict],
+    font_size_pt: float,
+    leading_em: float,
+    page_body_font_size_pt: float | None = None,
+) -> tuple[float, float]:
+    demand = _text_demand_units(protected_text, formula_map)
+    if item.get("_is_body_text_candidate", False) and page_body_font_size_pt is not None:
+        font_size_pt = round(max(font_size_pt, page_body_font_size_pt - 0.2), 2)
+    if demand <= 0:
+        return font_size_pt, leading_em
+
+    box = inner_bbox(item)
+    capacity = _box_capacity_units(box, font_size_pt, leading_em)
+    if capacity <= 0 or demand <= capacity * 0.96:
+        return font_size_pt, leading_em
+
+    best_font = font_size_pt
+    best_leading = leading_em
+
+    max_steps = 2 if item.get("_is_body_text_candidate", False) else 7
+    min_font = max(8.6, (page_body_font_size_pt - 0.35) if page_body_font_size_pt is not None else 8.2)
+    for step in range(1, max_steps + 1):
+        candidate_font = round(max(min_font, font_size_pt - step * 0.15), 2)
+        candidate_capacity = _box_capacity_units(box, candidate_font, leading_em)
+        if demand <= candidate_capacity * 0.98:
+            return candidate_font, leading_em
+        best_font = candidate_font
+
+    if item.get("_is_body_text_candidate", False):
+        emergency_leading = round(max(0.52, leading_em - 0.06), 2)
+        emergency_min_font = max(8.45, (page_body_font_size_pt - 0.55) if page_body_font_size_pt is not None else 8.45)
+        for step in range(1, 5):
+            candidate_font = round(max(emergency_min_font, best_font - step * 0.12), 2)
+            candidate_capacity = _box_capacity_units(box, candidate_font, emergency_leading)
+            if demand <= candidate_capacity * 0.98:
+                return candidate_font, emergency_leading
+            best_font = candidate_font
+        return best_font, emergency_leading
+
+    return best_font, best_leading
+
+
 def _trim_joined_tokens(tokens: list[str]) -> str:
     return "".join(tokens).strip()
 
@@ -221,18 +273,44 @@ def build_render_blocks(translated_items: list[dict]) -> list[RenderBlock]:
     page_font_size, page_line_pitch, page_line_height, density_baseline = page_baseline_font_size(translated_items)
     text_widths = [bbox_width(item) for item in translated_items if item.get("block_type") == "text"]
     page_text_width_med = median(text_widths) if text_widths else 0.0
+    body_base_sizes: list[float] = []
+    body_flags: dict[int, bool] = {}
+    base_metrics: dict[int, tuple[float, float]] = {}
+    for index, item in enumerate(translated_items):
+        item_with_flag = dict(item)
+        item_with_flag["_is_body_text_candidate"] = is_body_text_candidate(item, page_text_width_med)
+        body_flags[index] = item_with_flag["_is_body_text_candidate"]
+        font_size_pt = estimate_font_size_pt(
+            item_with_flag,
+            page_font_size,
+            page_line_pitch,
+            page_line_height,
+            density_baseline,
+        )
+        if is_default_text_block(item):
+            font_size_pt = DEFAULT_FONT_SIZE
+        leading_em = estimate_leading_em(item_with_flag, page_line_pitch, font_size_pt)
+        base_metrics[index] = (font_size_pt, leading_em)
+        if item_with_flag["_is_body_text_candidate"]:
+            body_base_sizes.append(font_size_pt)
+    page_body_font_size_pt = round(median(body_base_sizes), 2) if body_base_sizes else None
+
     for index, item in enumerate(translated_items):
         translated_text = (item.get("render_protected_text") or item.get("protected_translated_text") or "").strip()
         bbox = item.get("bbox", [])
         if len(bbox) != 4 or not translated_text:
             continue
-        font_size_pt, leading_em = _block_metrics(
-            item,
-            page_font_size,
-            page_line_pitch,
-            page_line_height,
-            density_baseline,
-            page_text_width_med,
+        font_size_pt, leading_em = base_metrics[index]
+        formula_map = item.get("render_formula_map") or item.get("formula_map", [])
+        if body_flags.get(index) and page_body_font_size_pt is not None:
+            font_size_pt = round(min(max(font_size_pt, page_body_font_size_pt - 0.15), page_body_font_size_pt + 0.15), 2)
+        font_size_pt, leading_em = _fit_translated_block_metrics(
+            {**item, "_is_body_text_candidate": body_flags.get(index, False)},
+            translated_text,
+            formula_map,
+            font_size_pt,
+            leading_em,
+            page_body_font_size_pt=page_body_font_size_pt if body_flags.get(index) else None,
         )
         blocks.append(
             RenderBlock(
@@ -241,7 +319,7 @@ def build_render_blocks(translated_items: list[dict]) -> list[RenderBlock]:
                 inner_bbox=inner_bbox(item),
                 markdown_text=build_markdown_from_parts(
                     translated_text,
-                    item.get("render_formula_map") or item.get("formula_map", []),
+                    formula_map,
                 ),
                 plain_text=build_plain_text_from_text(translated_text),
                 render_kind=(

@@ -5,6 +5,9 @@ This directory contains the OCR translation and PDF rendering pipeline.
 Current status:
 
 - paragraph-based Typst rendering is the default path
+- default Typst Chinese font is `Noto Serif CJK SC`
+- body layout tuning can be overridden from CLI without editing code
+- current stable body-text strategy is: Chinese-first leading, page-level body font unification, emergency fallback only for true overflow blocks
 - `list` child blocks are extracted and rendered item-by-item
 - `inline_equation` is preserved via placeholders during translation
 - `ref_text` is skipped and not sent to translation
@@ -12,6 +15,7 @@ Current status:
 - translation now supports concurrent batch workers and HTTP session reuse
 - full-book translation now supports continuation groups across page boundaries
 - `precise` mode adds LLM block classification for suspicious OCR text blocks before translation
+- `sci` mode can infer the document domain from the first two PDF pages and inject document-specific guidance into later translation batches
 - full-book Typst build now compiles page overlays in parallel
 - if a page hits unsupported Typst math, that page falls back to plain-text overlay instead of failing the whole book
 
@@ -52,6 +56,8 @@ Current status:
   Translation JSON template/load/save helpers.
 - `translation_workflow.py`
   Shared translation workflow for page/book translation commands, including concurrent batch workers.
+- `domain_context.py`
+  In `sci` mode, infers the document domain from the first two PDF pages and generates translation guidance for the rest of the book.
 - `continuations.py`
   Detects likely paragraph continuations, including cross-page continuation groups for full-book runs.
 
@@ -75,6 +81,10 @@ Current status:
   System prompt for translation.
 - `translation_task.txt`
   Task text injected into the translation user payload.
+- `domain_inference_system.txt`
+  System prompt for first-two-pages domain inference in `sci` mode.
+- `domain_inference_task.txt`
+  Task text for domain-aware translation guidance generation.
 
 ### `rendering/`
 
@@ -85,7 +95,7 @@ Current status:
 - `typst_formula_renderer.py`
   Formula rendering helpers used by the legacy overlay path.
 - `typst_page_renderer.py`
-  Current Typst-based paragraph renderer using `cmarker + mitex`, with page-level compile fallback and parallel book build support.
+  Current Typst-based paragraph renderer using `cmarker + mitex`, with page-level compile fallback, parallel book build support, and side-by-side dual PDF output.
 
 ## Current Rendering Path
 
@@ -99,9 +109,10 @@ Rendering is paragraph-based:
 - join text and inline formulas into one Markdown paragraph
 - for continuation groups, translate once and flow the result back across multiple OCR boxes, including cross-page cases
 - render with Typst `cmarker + mitex`
-- build full books page-by-page instead of one giant overlay compile
-- compile page overlays in parallel during full-book build
-- if one page contains unsupported math syntax, downgrade only that page to plain-text overlay
+- build one combined Typst overlay for the whole selected page range by default
+- for editable PDFs, remove original text without white fill before overlaying Chinese
+- for image-style PDFs, keep white redaction fill as fallback
+- if the combined Typst build fails, fall back to page-level plain-text-safe overlay compilation
 
 Inline formula coordinates are not used directly in the current Typst path.
 
@@ -140,6 +151,15 @@ Practical consequences in the code:
 - line spacing should stay in a narrow band instead of using a loose global default
 - `inner_bbox` is often more important than another `0.2pt` font tweak
 
+Runtime tuning knobs:
+
+- `--body-font-size-factor`
+- `--body-leading-factor`
+- `--inner-bbox-shrink-x`
+- `--inner-bbox-shrink-y`
+- `--inner-bbox-dense-shrink-x`
+- `--inner-bbox-dense-shrink-y`
+
 What we are not doing on purpose:
 
 - no attempt to recover the original PDF font family
@@ -151,6 +171,8 @@ The current direction is:
 - stable page-level body-text size
 - small elasticity only
 - rhythm-first fitting using OCR line geometry
+- Chinese-first body leading instead of tight OCR-English leading lock-in
+- page-level body font unification with emergency fallback only for true overflow blocks
 - continue improving body-text detection before touching non-body blocks
 
 ## Translation Rules
@@ -174,11 +196,13 @@ In `precise` mode:
 For full-book PDF generation, the current strategy is:
 
 - translate page-by-page into per-page JSON
-- compile per-page Typst overlays in parallel
-- if a page fails Typst math rendering, retry that page as plain-text overlay
-- after all overlays are ready, merge them back into the source PDF sequentially
+- build one combined Typst overlay for the selected page range
+- remove original text directly for editable PDFs before overlaying Chinese
+- use white redaction fill only for image-style PDFs
+- if the combined build fails on a Typst issue, fall back to page-level compilation
+- page-level fallback can still compile pages in parallel when needed
 
-This keeps the final build fast on multi-core CPUs without letting one bad formula kill the whole book.
+This is currently the best size / stability tradeoff we found. Experiments with extra pre-subset font assets did not reduce the final PDF size in this pipeline, so they are not part of the main route.
 
 ## Continuation Groups
 
@@ -236,6 +260,18 @@ python scripts/build_book.py \
   --start-page 0 \
   --end-page 18 \
   --compile-workers 12
+```
+
+Build a dual preview with original pages on the left and translated pages on the right:
+
+```bash
+python scripts/build_book.py \
+  --translations-dir translations/test1-run \
+  --source-pdf Data/test1/test1.pdf \
+  --start-page 0 \
+  --end-page 1 \
+  --output test1-dual-preview.pdf \
+  --render-mode dual
 ```
 
 Translate one page:
@@ -307,6 +343,24 @@ python scripts/run_book.py \
   --output test1-run.pdf
 ```
 
+Run the same pipeline but emit a dual PDF:
+
+```bash
+python scripts/run_book.py \
+  --source-json Data/test1/test1.json \
+  --source-pdf Data/test1/test1.pdf \
+  --mode precise \
+  --batch-size 6 \
+  --workers 4 \
+  --base-url http://1.94.67.196:10001/v1 \
+  --model Q3.5-turbo \
+  --output-dir translations/test1-dual-run \
+  --output test1-dual-run.pdf \
+  --render-mode dual
+```
+
 If you omit `--end-page`, the scripts process the full document by default.
 `run_book.py` defaults to `typst` rendering.
+The current preferred production route is still the Typst path: delete original text on editable PDFs, then apply one combined Typst overlay for the whole book.
+`run_book.py --render-mode dual` and `build_book.py --render-mode dual` output side-by-side pages: left original, right translated.
 `build_book.py` supports `--compile-workers`; `0` means auto, and the current auto mode caps parallel Typst page compilation to a safe upper bound instead of trying to use all CPU threads blindly.

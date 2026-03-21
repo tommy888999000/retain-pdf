@@ -10,8 +10,34 @@ def load_ocr_json(json_path: Path) -> dict:
         return json.load(f)
 
 
+_MATH_CONTROL_CHAR_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _repair_math_control_chars(text: str, next_text: str = "") -> str:
+    if not text or not _MATH_CONTROL_CHAR_RE.search(text):
+        return text
+
+    chars = list(text)
+    for match in list(_MATH_CONTROL_CHAR_RE.finditer(text)):
+        start, end = match.span()
+        before = text[max(0, start - 48) : start].lower()
+        after = (text[end : min(len(text), end + 48)] + " " + next_text[:48]).lower()
+        if (
+            re.search(r"(fixing|rotation angle|torsion angle|dihedral angle|angle|angles|function of)\s*$", before)
+            or re.search(r"^\s*(as a dihedral angle|of the methyl group|varying|represents|=|and|or|\))", after)
+        ):
+            chars[start] = r"\theta"
+        else:
+            chars[start] = " "
+    return "".join(chars)
+
+
 def normalize_text(raw_text: str) -> str:
-    return " ".join(raw_text.split())
+    return " ".join(_repair_math_control_chars(raw_text).split())
+
+
+def normalize_span_text(raw_text: str, next_text: str = "") -> str:
+    return " ".join(_repair_math_control_chars(raw_text, next_text=next_text).split())
 
 
 def iter_block_lines(block: dict):
@@ -24,14 +50,16 @@ def iter_block_lines(block: dict):
 def block_segments(block: dict) -> list[dict]:
     segments: list[dict] = []
     for line in iter_block_lines(block):
-        for span in line.get("spans", []):
+        spans = line.get("spans", [])
+        for index, span in enumerate(spans):
             content = span.get("content", "")
             if not content or not content.strip():
                 continue
+            next_content = spans[index + 1].get("content", "") if index + 1 < len(spans) else ""
             segments.append(
                 {
                     "type": span.get("type", "text"),
-                    "content": normalize_text(content),
+                    "content": normalize_span_text(content, next_content),
                 }
             )
     return segments
@@ -41,14 +69,16 @@ def block_lines(block: dict) -> list[dict]:
     lines_out: list[dict] = []
     for line in iter_block_lines(block):
         spans_out = []
-        for span in line.get("spans", []):
+        spans = line.get("spans", [])
+        for index, span in enumerate(spans):
             content = span.get("content", "")
             if not content or not content.strip():
                 continue
+            next_content = spans[index + 1].get("content", "") if index + 1 < len(spans) else ""
             spans_out.append(
                 {
                     "type": span.get("type", "text"),
-                    "content": normalize_text(content),
+                    "content": normalize_span_text(content, next_content),
                     "bbox": span.get("bbox", []),
                 }
             )

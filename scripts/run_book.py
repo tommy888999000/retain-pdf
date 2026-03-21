@@ -1,7 +1,15 @@
 import argparse
 from pathlib import Path
 
+from common.config import BODY_FONT_SIZE_FACTOR
+from common.config import BODY_LEADING_FACTOR
+from common.config import INNER_BBOX_DENSE_SHRINK_X
+from common.config import INNER_BBOX_DENSE_SHRINK_Y
+from common.config import INNER_BBOX_SHRINK_X
+from common.config import INNER_BBOX_SHRINK_Y
 from common.config import OUTPUT_DIR, SOURCE_JSON, SOURCE_PDF
+from common.config import TYPST_DEFAULT_FONT_FAMILY
+from common.config import apply_layout_tuning
 from pipeline.book_pipeline import run_book_pipeline
 from translation.deepseek_client import DEFAULT_BASE_URL
 from translation.deepseek_client import get_api_key
@@ -65,8 +73,8 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="typst",
-        choices=["auto", "compact", "typst"],
-        help="Rendering mode for translated pages. typst uses combined overlay with text redaction. auto keeps experimental editable-PDF detection.",
+        choices=["auto", "compact", "direct", "typst", "dual"],
+        help="Rendering mode for translated pages. direct writes translated text back into the original PDF. dual outputs a side-by-side PDF: left original page, right translated page.",
     )
     parser.add_argument(
         "--compile-workers",
@@ -74,11 +82,31 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="Parallel Typst overlay compilation workers. 0 means auto.",
     )
+    parser.add_argument(
+        "--typst-font-family",
+        type=str,
+        default=TYPST_DEFAULT_FONT_FAMILY,
+        help="Base Typst font family name.",
+    )
+    parser.add_argument("--body-font-size-factor", type=float, default=BODY_FONT_SIZE_FACTOR)
+    parser.add_argument("--body-leading-factor", type=float, default=BODY_LEADING_FACTOR)
+    parser.add_argument("--inner-bbox-shrink-x", type=float, default=INNER_BBOX_SHRINK_X)
+    parser.add_argument("--inner-bbox-shrink-y", type=float, default=INNER_BBOX_SHRINK_Y)
+    parser.add_argument("--inner-bbox-dense-shrink-x", type=float, default=INNER_BBOX_DENSE_SHRINK_X)
+    parser.add_argument("--inner-bbox-dense-shrink-y", type=float, default=INNER_BBOX_DENSE_SHRINK_Y)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    apply_layout_tuning(
+        body_font_size_factor=args.body_font_size_factor,
+        body_leading_factor=args.body_leading_factor,
+        inner_bbox_shrink_x=args.inner_bbox_shrink_x,
+        inner_bbox_shrink_y=args.inner_bbox_shrink_y,
+        inner_bbox_dense_shrink_x=args.inner_bbox_dense_shrink_x,
+        inner_bbox_dense_shrink_y=args.inner_bbox_dense_shrink_y,
+    )
     api_key = get_api_key(
         args.api_key,
         required=normalize_base_url(args.base_url) == normalize_base_url(DEFAULT_BASE_URL),
@@ -100,6 +128,7 @@ def main() -> None:
         skip_title_translation=args.skip_title_translation,
         render_mode=args.render_mode,
         compile_workers=args.compile_workers or None,
+        typst_font_family=args.typst_font_family,
     )
     print(f"translation dir: {result['output_dir']}")
     print(f"output pdf: {result['output_pdf_path']}")

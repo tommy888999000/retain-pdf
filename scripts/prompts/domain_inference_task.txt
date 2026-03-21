@@ -1,0 +1,10 @@
+Read the first two pages of this PDF and infer the document's academic or technical domain.
+
+Then write a concise translation guidance paragraph in Chinese for the later full-book translation.
+
+The guidance should help the translation model:
+- preserve domain terminology
+- keep formulas, code, commands, file names, options, symbols, and abbreviations unchanged when appropriate
+- use natural but academically accurate Chinese
+- avoid over-free paraphrase
+- prefer established Chinese terminology for the inferred domain

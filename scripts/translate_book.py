@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-from common.config import OUTPUT_DIR, SOURCE_JSON
+from common.config import OUTPUT_DIR, SOURCE_JSON, SOURCE_PDF
 from pipeline.book_pipeline import translate_book_pipeline
 from translation.deepseek_client import DEFAULT_BASE_URL
 from translation.deepseek_client import get_api_key
@@ -47,6 +47,12 @@ def parse_args() -> argparse.Namespace:
         default=str(SOURCE_JSON),
         help="OCR JSON source path.",
     )
+    parser.add_argument(
+        "--source-pdf",
+        type=str,
+        default=str(SOURCE_PDF),
+        help="Source PDF path. In sci mode the first two pages are used for domain inference.",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +75,7 @@ def main() -> None:
         skip_title_translation=args.skip_title_translation,
         model=args.model,
         base_url=args.base_url,
+        source_pdf_path=Path(args.source_pdf),
     )
     for page_summary in summary["summaries"]:
         print(

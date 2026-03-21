@@ -45,7 +45,7 @@ def parse_args() -> argparse.Namespace:
         "--render-mode",
         type=str,
         default="default",
-        choices=["default", "typst"],
+        choices=["default", "direct", "typst"],
         help="Rendering mode for translated overlay.",
     )
     parser.add_argument(

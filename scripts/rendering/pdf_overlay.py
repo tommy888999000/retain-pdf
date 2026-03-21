@@ -13,7 +13,14 @@ TOKEN_RE = re.compile(r"(\[\[FORMULA_\d+]]|\s+|[A-Za-z0-9_\-./]+|[\u4e00-\u9fff]
 def save_optimized_pdf(doc: fitz.Document, output_pdf_path: Path) -> None:
     output_pdf_path.parent.mkdir(parents=True, exist_ok=True)
     doc.subset_fonts()
-    doc.ez_save(output_pdf_path)
+    doc.save(
+        output_pdf_path,
+        garbage=4,
+        deflate=True,
+        deflate_images=True,
+        deflate_fonts=True,
+        use_objstms=1,
+    )
 
 
 def strip_page_links(page: fitz.Page) -> None:
@@ -24,7 +31,15 @@ def strip_page_links(page: fitz.Page) -> None:
             continue
 
 
-def redact_translated_text_areas(page: fitz.Page, translated_items: list[dict]) -> None:
+def page_has_editable_text(page: fitz.Page) -> bool:
+    return len(page.get_text("words")) >= 20
+
+
+def redact_translated_text_areas(
+    page: fitz.Page,
+    translated_items: list[dict],
+    fill_background: bool | None = None,
+) -> None:
     rects: list[fitz.Rect] = []
     for item in translated_items:
         bbox = item.get("bbox", [])
@@ -33,8 +48,11 @@ def redact_translated_text_areas(page: fitz.Page, translated_items: list[dict]) 
             continue
         rects.append(fitz.Rect(bbox))
 
+    if fill_background is None:
+        fill_background = not page_has_editable_text(page)
+    fill = (1, 1, 1) if fill_background else None
     for rect in rects:
-        page.add_redact_annot(rect, fill=(1, 1, 1))
+        page.add_redact_annot(rect, fill=fill)
     if rects:
         page.apply_redactions(
             images=fitz.PDF_REDACT_IMAGE_NONE,

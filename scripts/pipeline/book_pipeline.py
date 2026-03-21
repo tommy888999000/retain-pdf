@@ -4,14 +4,17 @@ from pathlib import Path
 import fitz
 
 from common.config import DEFAULT_FONT_PATH
+from common.config import TYPST_DEFAULT_FONT_FAMILY
 from ocr.json_extractor import load_ocr_json
+from translation.domain_context import infer_domain_context
 from rendering.pdf_overlay import apply_translated_items_to_page
 from rendering.pdf_overlay import save_optimized_pdf
+from rendering.pdf_overlay import strip_page_links
 from rendering.render_payloads import prepare_render_payloads_by_page
+from rendering.typst_page_renderer import build_dual_book_pdf
 from rendering.typst_page_renderer import build_book_typst_pdf
 from rendering.typst_page_renderer import overlay_translated_pages_on_doc
 from translation.deepseek_client import DEFAULT_BASE_URL
-from pipeline.book_translation_flow import translate_book_pages
 from pipeline.book_translation_flow import translate_book_with_global_continuations
 from translation.translations import load_translations
 
@@ -59,6 +62,7 @@ def translate_book_pipeline(
     skip_title_translation: bool = False,
     model: str = "deepseek-chat",
     base_url: str = DEFAULT_BASE_URL,
+    source_pdf_path: Path | None = None,
 ) -> dict:
     data = load_ocr_json(source_json_path)
     pages = data.get("pdf_info", [])
@@ -69,23 +73,37 @@ def translate_book_pipeline(
     page_indices = range(start, stop + 1)
     sci_cutoff_page_idx = None
     sci_cutoff_block_idx = None
+    domain_context: dict[str, str] | None = None
     if mode == "sci":
         sci_cutoff_page_idx, sci_cutoff_block_idx = find_last_title_cutoff(data)
-    translated_pages_map, summaries = translate_book_pages(
+        if source_pdf_path is not None:
+            domain_context = infer_domain_context(
+                source_pdf_path=source_pdf_path,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                output_dir=output_dir,
+            )
+            if domain_context.get("domain") or domain_context.get("translation_guidance"):
+                print(
+                    f"sci domain: {domain_context.get('domain', '').strip() or 'unknown'}",
+                    flush=True,
+                )
+    translated_pages_map, summaries = translate_book_with_global_continuations(
         data=data,
         output_dir=output_dir,
         page_indices=page_indices,
         api_key=api_key,
         batch_size=batch_size,
-        workers=workers,
+        workers=max(1, workers),
         model=model,
         base_url=base_url,
         mode=mode,
-        classify_batch_size=classify_batch_size,
+        classify_batch_size=max(1, classify_batch_size),
         skip_title_translation=skip_title_translation,
-        progress_prefix="page",
         sci_cutoff_page_idx=sci_cutoff_page_idx,
         sci_cutoff_block_idx=sci_cutoff_block_idx,
+        domain_guidance=(domain_context or {}).get("translation_guidance", ""),
     )
     total_items = sum(item["total_items"] for item in summaries)
     translated_items = sum(item["translated_items"] for item in summaries)
@@ -98,6 +116,7 @@ def translate_book_pipeline(
         "translated_items": translated_items,
         "translated_pages_map": translated_pages_map,
         "summaries": summaries,
+        "domain_context": domain_context or {},
     }
 
 
@@ -110,6 +129,8 @@ def build_book_from_translations(
     end_page: int = -1,
     compile_workers: int | None = None,
     extract_selected_pages: bool = False,
+    render_mode: str = "typst",
+    typst_font_family: str = TYPST_DEFAULT_FONT_FAMILY,
 ) -> int:
     translated_pages: dict[int, list[dict]] = {}
     for path in sorted(translations_dir.glob("page-*-deepseek.json")):
@@ -135,6 +156,32 @@ def build_book_from_translations(
     if not selected_pages:
         raise RuntimeError(f"No translated pages selected in range {start}..{stop}")
 
+    if render_mode == "dual":
+        build_dual_book_pdf(
+            source_pdf_path=source_pdf_path,
+            output_pdf_path=output_pdf_path,
+            translated_pages=selected_pages,
+            start_page=start,
+            end_page=stop,
+            compile_workers=compile_workers,
+            font_family=typst_font_family,
+        )
+        return len(selected_pages)
+
+    if render_mode == "direct":
+        doc = fitz.open(source_pdf_path)
+        try:
+            render_pages_map = prepare_render_payloads_by_page(selected_pages)
+            for page_idx in sorted(render_pages_map):
+                if 0 <= page_idx < len(doc):
+                    page = doc[page_idx]
+                    strip_page_links(page)
+                    apply_translated_items_to_page(page, render_pages_map[page_idx], DEFAULT_FONT_PATH)
+            save_optimized_pdf(doc, output_pdf_path)
+        finally:
+            doc.close()
+        return len(selected_pages)
+
     if extract_selected_pages:
         source_doc = fitz.open(source_pdf_path)
         temp_doc = fitz.open()
@@ -149,6 +196,7 @@ def build_book_from_translations(
                 remapped_pages,
                 stem="book-overlay",
                 compile_workers=compile_workers,
+                font_family=typst_font_family,
             )
             save_optimized_pdf(temp_doc, output_pdf_path)
         finally:
@@ -161,6 +209,7 @@ def build_book_from_translations(
         output_pdf_path=output_pdf_path,
         translated_pages=selected_pages,
         compile_workers=compile_workers,
+        font_family=typst_font_family,
     )
     return len(selected_pages)
 
@@ -174,6 +223,8 @@ def build_book_pipeline(
     end_page: int = -1,
     compile_workers: int | None = None,
     extract_selected_pages: bool = False,
+    render_mode: str = "typst",
+    typst_font_family: str = TYPST_DEFAULT_FONT_FAMILY,
 ) -> dict:
     pages_rendered = build_book_from_translations(
         source_pdf_path=source_pdf_path,
@@ -183,6 +234,8 @@ def build_book_pipeline(
         end_page=end_page,
         compile_workers=compile_workers,
         extract_selected_pages=extract_selected_pages,
+        render_mode=render_mode,
+        typst_font_family=typst_font_family,
     )
     return {
         "output_pdf_path": output_pdf_path,
@@ -209,6 +262,7 @@ def run_book_pipeline(
     skip_title_translation: bool,
     render_mode: str,
     compile_workers: int | None = None,
+    typst_font_family: str = TYPST_DEFAULT_FONT_FAMILY,
 ) -> dict:
     data = load_ocr_json(source_json_path)
     pages = data.get("pdf_info", [])
@@ -216,62 +270,65 @@ def run_book_pipeline(
         raise RuntimeError("No pages found in OCR JSON.")
 
     start_idx, end_idx = resolve_page_range(len(pages), start_page, end_page)
-    sci_cutoff_page_idx = None
-    sci_cutoff_block_idx = None
-    if mode == "sci":
-        sci_cutoff_page_idx, sci_cutoff_block_idx = find_last_title_cutoff(data)
-    doc = fitz.open(source_pdf_path)
-    translated_pages_map: dict[int, list[dict]] = {}
-    translated_items_total = 0
-    translated_pages = 0
-    translate_started = time.perf_counter()
-    try:
-        effective_render_mode = render_mode
-        if effective_render_mode == "auto":
-            effective_render_mode = "compact" if is_editable_pdf(doc, start_idx, end_idx) else "typst"
-            print(f"auto render mode selected: {effective_render_mode}")
+    effective_render_mode = render_mode
+    if effective_render_mode == "auto":
+        doc = fitz.open(source_pdf_path)
+        try:
+            effective_render_mode = "direct" if is_editable_pdf(doc, start_idx, end_idx) else "typst"
+        finally:
+            doc.close()
+        print(f"auto render mode selected: {effective_render_mode}")
 
-        page_indices = range(start_idx, end_idx + 1)
-        translated_pages_map, summaries = translate_book_with_global_continuations(
-            data=data,
-            output_dir=output_dir,
-            page_indices=page_indices,
-            api_key=api_key,
-            batch_size=batch_size,
-            workers=max(1, workers),
-            model=model,
-            base_url=base_url,
-            mode=mode,
-            classify_batch_size=max(1, classify_batch_size),
-            skip_title_translation=skip_title_translation,
-            sci_cutoff_page_idx=sci_cutoff_page_idx,
-            sci_cutoff_block_idx=sci_cutoff_block_idx,
+    total_started = time.perf_counter()
+    translation_summary = translate_book_pipeline(
+        source_json_path=source_json_path,
+        output_dir=output_dir,
+        api_key=api_key,
+        start_page=start_idx,
+        end_page=end_idx,
+        batch_size=batch_size,
+        workers=max(1, workers),
+        mode=mode,
+        classify_batch_size=max(1, classify_batch_size),
+        skip_title_translation=skip_title_translation,
+        model=model,
+        base_url=base_url,
+        source_pdf_path=source_pdf_path,
+    )
+    translate_elapsed = time.perf_counter() - total_started
+
+    translated_pages = translation_summary["page_count"]
+    translated_items_total = translation_summary["translated_items"]
+    for page_summary in translation_summary["summaries"]:
+        print(f"page {page_summary['page_idx'] + 1}: translated {page_summary['translated_items']}/{page_summary['total_items']}")
+
+    save_started = time.perf_counter()
+    if effective_render_mode in {"compact", "direct"}:
+        doc = fitz.open(source_pdf_path)
+        try:
+            translated_pages_map = translation_summary["translated_pages_map"]
+            render_pages_map = prepare_render_payloads_by_page(translated_pages_map)
+            for page_idx in sorted(translated_pages_map):
+                if 0 <= page_idx < len(doc):
+                    page = doc[page_idx]
+                    apply_translated_items_to_page(page, render_pages_map[page_idx], DEFAULT_FONT_PATH)
+            save_optimized_pdf(doc, output_pdf_path)
+        finally:
+            doc.close()
+    else:
+        build_book_pipeline(
+            source_pdf_path=source_pdf_path,
+            translations_dir=output_dir,
+            output_pdf_path=output_pdf_path,
+            start_page=start_idx,
+            end_page=end_idx,
+            compile_workers=compile_workers,
+            extract_selected_pages=False,
+            render_mode=effective_render_mode,
+            typst_font_family=typst_font_family,
         )
-        render_pages_map = prepare_render_payloads_by_page(translated_pages_map)
-        for page_idx, summary in zip(sorted(translated_pages_map), summaries):
-            translated_items_total += summary["translated_items"]
-            translated_pages += 1
-            print(f"page {page_idx + 1}: translated {summary['translated_items']}/{summary['total_items']}")
-            if effective_render_mode != "typst" and 0 <= page_idx < len(doc):
-                page = doc[page_idx]
-                apply_translated_items_to_page(page, render_pages_map[page_idx], DEFAULT_FONT_PATH)
-
-        if effective_render_mode == "typst":
-            overlay_translated_pages_on_doc(
-                doc,
-                translated_pages_map,
-                stem="run-book-overlay",
-                compile_workers=compile_workers,
-            )
-
-        translate_elapsed = time.perf_counter() - translate_started
-        save_started = time.perf_counter()
-        save_optimized_pdf(doc, output_pdf_path)
-        save_elapsed = time.perf_counter() - save_started
-    finally:
-        doc.close()
-
-    total_elapsed = time.perf_counter() - translate_started
+    save_elapsed = time.perf_counter() - save_started
+    total_elapsed = time.perf_counter() - total_started
     return {
         "output_dir": output_dir,
         "output_pdf_path": output_pdf_path,

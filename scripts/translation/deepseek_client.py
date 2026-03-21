@@ -14,8 +14,10 @@ DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
 _THREAD_LOCAL = threading.local()
 
 
-def build_messages(batch: list[dict]) -> list[dict[str, str]]:
+def build_messages(batch: list[dict], domain_guidance: str = "") -> list[dict[str, str]]:
     system_prompt = load_prompt("translation_system.txt")
+    if domain_guidance.strip():
+        system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
     groups: dict[str, dict[str, Any]] = {}
     items_payload = []
     for item in batch:
@@ -53,8 +55,10 @@ def build_messages(batch: list[dict]) -> list[dict[str, str]]:
     ]
 
 
-def build_single_item_fallback_messages(item: dict) -> list[dict[str, str]]:
+def build_single_item_fallback_messages(item: dict, domain_guidance: str = "") -> list[dict[str, str]]:
     system_prompt = load_prompt("translation_system.txt")
+    if domain_guidance.strip():
+        system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
     fallback_system = (
         f"{system_prompt}\n"
         "You are translating exactly one item.\n"
