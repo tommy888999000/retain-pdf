@@ -6,3 +6,4 @@ output/
 scripts/.env/*.env
 Fast_API/jobs/
 Fast_API/uploads/
+Fast_API/downloads/

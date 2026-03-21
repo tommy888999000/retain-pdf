@@ -13,7 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 RUN_CASE_SCRIPT = PROJECT_ROOT / "scripts" / "run_case.py"
 RUN_MINERU_CASE_SCRIPT = PROJECT_ROOT / "scripts" / "run_mineru_case.py"
 UPLOADS_DIR = PROJECT_ROOT / "Fast_API" / "uploads"
+DOWNLOADS_DIR = PROJECT_ROOT / "Fast_API" / "downloads"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+DOWNLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _strip_output_prefix(value: str) -> str:

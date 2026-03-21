@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 
+from .executor import build_job_download_zip
 from .executor import list_jobs
 from .executor import load_job
 from .executor import status_payload
@@ -144,6 +146,25 @@ async def get_job(job_id: str) -> JobStatus:
         return status_payload(load_job(job_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=f"job not found: {job_id}") from exc
+
+
+@app.get("/v1/jobs/{job_id}/download")
+async def download_job_bundle(job_id: str) -> FileResponse:
+    try:
+        record = load_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"job not found: {job_id}") from exc
+
+    try:
+        zip_path = build_job_download_zip(record)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return FileResponse(
+        path=zip_path,
+        media_type="application/zip",
+        filename=f"{job_id}.zip",
+    )
 
 
 @app.get("/v1/jobs", response_model=list[JobStatus])

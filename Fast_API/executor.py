@@ -5,8 +5,10 @@ import json
 import re
 import time
 import uuid
+import zipfile
 from pathlib import Path
 
+from .models import DOWNLOADS_DIR
 from .models import JobRecord
 from .models import JobStatus
 from .models import ProcessResult
@@ -222,3 +224,53 @@ def status_payload(record: JobRecord) -> JobStatus:
         result=record.result,
         artifacts=record.artifacts,
     )
+
+
+def _resolve_path(path_text: str | None) -> Path | None:
+    if not path_text:
+        return None
+    path = Path(path_text)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+    return path.resolve()
+
+
+def _add_file_to_zip(zip_file: zipfile.ZipFile, file_path: Path, arcname: str) -> None:
+    if file_path.exists() and file_path.is_file():
+        zip_file.write(file_path, arcname)
+
+
+def _add_tree_to_zip(zip_file: zipfile.ZipFile, root_dir: Path, arc_prefix: str) -> None:
+    if not root_dir.exists() or not root_dir.is_dir():
+        return
+    for path in sorted(root_dir.rglob("*")):
+        if path.is_file():
+            rel = path.relative_to(root_dir)
+            zip_file.write(path, f"{arc_prefix}/{rel.as_posix()}")
+
+
+def build_job_download_zip(record: JobRecord) -> Path:
+    if record.status != "succeeded":
+        raise RuntimeError("job is not finished successfully")
+    if record.artifacts is None:
+        raise RuntimeError("job does not contain downloadable artifacts")
+
+    job_root = _resolve_path(getattr(record.artifacts, "job_root", None))
+    if job_root is None or not job_root.exists():
+        raise RuntimeError("job root is missing")
+
+    zip_path = DOWNLOADS_DIR / f"{record.job_id}.zip"
+    origin_pdf_dir = job_root / "originPDF"
+    unpacked_dir = job_root / "jsonPDF" / "unpacked"
+    output_pdf = _resolve_path(getattr(record.artifacts, "output_pdf", None))
+    summary_path = _resolve_path(getattr(record.artifacts, "summary", None))
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zip_file:
+        _add_tree_to_zip(zip_file, origin_pdf_dir, f"{record.job_id}/originPDF")
+        _add_tree_to_zip(zip_file, unpacked_dir, f"{record.job_id}/jsonPDF/unpacked")
+        if output_pdf is not None and output_pdf.exists():
+            _add_file_to_zip(zip_file, output_pdf, f"{record.job_id}/transPDF/{output_pdf.name}")
+        if summary_path is not None and summary_path.exists():
+            _add_file_to_zip(zip_file, summary_path, f"{record.job_id}/transPDF/{summary_path.name}")
+
+    return zip_path

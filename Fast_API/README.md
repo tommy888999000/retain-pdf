@@ -29,6 +29,7 @@ uvicorn Fast_API.main:app --host 0.0.0.0 --port 40000
 - `POST /v1/run-mineru-case-upload`
 - `POST /v1/upload-mineru-case`
 - `GET /v1/jobs/{job_id}`
+- `GET /v1/jobs/{job_id}/download`
 - `GET /v1/jobs?limit=20`
 
 ## Workflow
@@ -208,6 +209,19 @@ Common form fields:
 curl http://127.0.0.1:40000/v1/jobs/8a2f5b5c1d9e
 ```
 
+## Download Job Bundle
+
+```bash
+curl -L http://127.0.0.1:40000/v1/jobs/8a2f5b5c1d9e/download -o 8a2f5b5c1d9e.zip
+```
+
+Returned zip includes:
+
+- original PDF files from `originPDF/`
+- final translated PDF from `transPDF/`
+- all files under `jsonPDF/unpacked/`
+- `pipeline_summary.json` when present
+
 Returned job payload includes:
 
 - `job_id`
@@ -255,3 +269,4 @@ Upload-based MinerU jobs reuse the same artifact parsing. Their stored request p
 - Passing `output/...` as API output paths is unnecessary. The server already writes inside a structured job folder under `output/`.
 - Uploaded files are stored under `Fast_API/uploads/<job_id>/`.
 - The upload route passes the generated `job_id` through to `scripts/run_mineru_case.py`, so final outputs still land under `output/<job_id>/originPDF|jsonPDF|transPDF`.
+- Download bundles are cached under `Fast_API/downloads/<job_id>.zip`.
