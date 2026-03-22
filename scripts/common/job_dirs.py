@@ -7,7 +7,7 @@ from pathlib import Path
 
 def build_job_id(now: datetime | None = None, random_length: int = 6) -> str:
     current = now or datetime.now()
-    stamp = current.strftime("%Y%m%d%H%M")
+    stamp = current.strftime("%Y%m%d%H%M%S")
     alphabet = string.ascii_lowercase + string.digits
     suffix = "".join(random.choice(alphabet) for _ in range(max(4, random_length)))
     return f"{stamp}-{suffix}"
