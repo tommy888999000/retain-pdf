@@ -41,10 +41,7 @@ def normalize_span_text(raw_text: str, next_text: str = "") -> str:
 
 
 def iter_block_lines(block: dict):
-    if block.get("lines"):
-        yield from block.get("lines", [])
-    for child in block.get("blocks", []):
-        yield from iter_block_lines(child)
+    yield from block.get("lines", [])
 
 
 def block_segments(block: dict) -> list[dict]:
@@ -322,20 +319,14 @@ def extract_text_items(data: dict, page_idx: int) -> list[TextItem]:
 
     page = pages[page_idx]
     items: list[TextItem] = []
-    for block_idx, block in enumerate(page.get("para_blocks", [])):
-        if block.get("type") == "list" and block.get("blocks"):
-            for child_idx, child in enumerate(block.get("blocks", [])):
-                item = extract_block_item(
-                    child,
-                    page_idx=page_idx,
-                    block_idx=block_idx,
-                    item_suffix=f"-i{child_idx:03d}",
-                )
-                if item is not None:
-                    items.append(item)
-            continue
-
-        item = extract_block_item(block, page_idx=page_idx, block_idx=block_idx)
+    def visit_block(block: dict, block_idx: int, item_suffix: str = "") -> None:
+        item = extract_block_item(block, page_idx=page_idx, block_idx=block_idx, item_suffix=item_suffix)
         if item is not None:
             items.append(item)
+
+        for child_idx, child in enumerate(block.get("blocks", []) or []):
+            visit_block(child, block_idx=block_idx, item_suffix=f"{item_suffix}-i{child_idx:03d}")
+
+    for block_idx, block in enumerate(page.get("para_blocks", [])):
+        visit_block(block, block_idx)
     return _apply_page_structure(items)
