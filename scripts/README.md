@@ -15,6 +15,7 @@ Current status:
 - translation supports DeepSeek and OpenAI-compatible local endpoints
 - translation now supports concurrent batch workers and HTTP session reuse
 - full-book translation now supports continuation groups across page boundaries
+- continuation handling now uses a fast rule pass first, then only sends ambiguous candidate pairs to the model for review
 - `precise` mode adds LLM block classification for suspicious OCR text blocks before translation
 - `fast` and `sci` do not run the classifier; they rely on OCR block types plus skip policies
 - `sci` mode can infer the document domain from the first two PDF pages and inject document-specific guidance into later translation batches

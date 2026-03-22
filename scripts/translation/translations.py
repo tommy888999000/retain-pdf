@@ -29,6 +29,9 @@ def export_translation_template(items: list[TextItem], output_path: Path, page_i
                 "continuation_group": "",
                 "continuation_prev_text": "",
                 "continuation_next_text": "",
+                "continuation_decision": "",
+                "continuation_candidate_prev_id": "",
+                "continuation_candidate_next_id": "",
                 "group_protected_source_text": "",
                 "group_formula_map": [],
                 "group_protected_translated_text": "",
@@ -103,6 +106,15 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
             changed = True
         if "continuation_next_text" not in record:
             record["continuation_next_text"] = ""
+            changed = True
+        if "continuation_decision" not in record:
+            record["continuation_decision"] = ""
+            changed = True
+        if "continuation_candidate_prev_id" not in record:
+            record["continuation_candidate_prev_id"] = ""
+            changed = True
+        if "continuation_candidate_next_id" not in record:
+            record["continuation_candidate_next_id"] = ""
             changed = True
         if "group_protected_source_text" not in record:
             record["group_protected_source_text"] = ""

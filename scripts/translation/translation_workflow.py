@@ -8,6 +8,7 @@ from translation.payload_ops import summarize_payload
 from translation.policy_config import TranslationPolicyConfig
 from translation.policy_config import build_translation_policy_config
 from translation.continuations import annotate_continuation_context
+from translation.continuations import summarize_continuation_decisions
 from translation.policy_flow import apply_translation_policies
 from translation.retrying_translator import translate_batch
 from translation.translations import ensure_translation_template, load_translations, save_translations
@@ -43,9 +44,14 @@ def translate_items_to_path(
     payload = load_translations(translation_path)
     label = progress_label or f"page {page_idx + 1}"
     continuation_items = annotate_continuation_context(payload)
-    if continuation_items:
+    continuation_summary = summarize_continuation_decisions(payload)
+    if continuation_items or continuation_summary["candidate_break_items"]:
         save_translations(translation_path, payload)
-        print(f"{label}: annotated {continuation_items} continuation-context items", flush=True)
+        print(
+            f"{label}: continuation joined={continuation_summary['joined_items']} "
+            f"candidate_break={continuation_summary['candidate_break_items']}",
+            flush=True,
+        )
 
     if policy_config is None:
         policy_config = build_translation_policy_config(

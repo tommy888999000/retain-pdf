@@ -16,6 +16,7 @@ class TranslationPolicyConfig:
     enable_narrow_body_noise_skip: bool = True
     enable_metadata_fragment_skip: bool = True
     metadata_fragment_max_page_idx: int = 1
+    enable_candidate_continuation_review: bool = True
     enable_domain_inference: bool = False
     sci_cutoff_page_idx: int | None = None
     sci_cutoff_block_idx: int | None = None
@@ -39,6 +40,10 @@ def should_apply_narrow_body_noise_skip() -> bool:
 
 
 def should_apply_metadata_fragment_skip() -> bool:
+    return True
+
+
+def should_apply_candidate_continuation_review() -> bool:
     return True
 
 
@@ -81,6 +86,7 @@ def build_translation_policy_config(
     enable_narrow_body_noise_skip: bool | None = None,
     enable_metadata_fragment_skip: bool | None = None,
     metadata_fragment_max_page_idx: int | None = None,
+    enable_candidate_continuation_review: bool | None = None,
     enable_domain_inference: bool | None = None,
 ) -> TranslationPolicyConfig:
     return TranslationPolicyConfig(
@@ -98,6 +104,9 @@ def build_translation_policy_config(
         if enable_metadata_fragment_skip is None
         else enable_metadata_fragment_skip,
         metadata_fragment_max_page_idx=1 if metadata_fragment_max_page_idx is None else metadata_fragment_max_page_idx,
+        enable_candidate_continuation_review=should_apply_candidate_continuation_review()
+        if enable_candidate_continuation_review is None
+        else enable_candidate_continuation_review,
         enable_domain_inference=(mode == "sci")
         if enable_domain_inference is None
         else enable_domain_inference,
