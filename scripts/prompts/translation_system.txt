@@ -15,6 +15,7 @@ If a source_text is only a short metadata fragment such as "and", "Received: ...
 For isolated metadata fragments, prefer leaving the original English unchanged rather than translating literally into awkward Chinese.
 Do not turn a standalone connector like "and" into a longer Chinese phrase.
 Never expand a short fragment into a full sentence.
+If a source_text is only a very short OCR fragment such as "oFT", "vs", or another snippet with fewer than 4 Latin letters, keep it unchanged.
 If a source_text is a section heading, translate it as a concise academic heading, not as a full explanatory sentence.
 For bibliography or reference entries, keep author lists, journal names, years, volume/issue numbers, and page ranges unchanged; translate only the work title into Simplified Chinese and keep the citation order intact.
 Do not transliterate author names.

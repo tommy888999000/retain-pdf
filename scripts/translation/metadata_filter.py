@@ -26,6 +26,9 @@ POSTAL_RE = re.compile(r"\b\d{4,6}\b")
 INITIAL_NAME_RE = re.compile(r"\b[A-Z]\.\s*[A-Z][a-z]+")
 ALL_CAPS_TOKEN_RE = re.compile(r"\b[A-Z][A-Z'`´.-]{1,}\b")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+LETTER_RE = re.compile(r"[A-Za-z]")
+SHORT_ALPHA_FRAGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._/-]{0,7}$")
+SECTION_MARKER_START_RE = re.compile(r"^(?:\(|\[)?(?:\d+(?:\.\d+)*|[A-Za-z])(?:\)|\]|\.)\s+|^[•\-*]\s+")
 
 
 def _normalized_text(item: dict) -> str:
@@ -75,6 +78,23 @@ def _looks_like_copyright_or_journal_line(text: str) -> bool:
     return False
 
 
+def _letter_count(text: str) -> int:
+    return len(LETTER_RE.findall(text))
+
+
+def _looks_like_short_alpha_fragment(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if SECTION_MARKER_START_RE.match(stripped):
+        return False
+    if any(ch.isspace() for ch in stripped):
+        return False
+    if not SHORT_ALPHA_FRAGMENT_RE.fullmatch(stripped):
+        return False
+    return _letter_count(stripped) < 4
+
+
 def should_skip_metadata_fragment(item: dict) -> bool:
     if item.get("block_type") not in {"text", "title", "list"}:
         return False
@@ -92,6 +112,8 @@ def should_skip_metadata_fragment(item: dict) -> bool:
     if _looks_like_author_or_affiliation(text):
         return True
     if _looks_like_copyright_or_journal_line(text):
+        return True
+    if _looks_like_short_alpha_fragment(text):
         return True
 
     if _line_count(item) <= 2 and len(text) <= 64 and text.strip().lower() == "supporting information":
