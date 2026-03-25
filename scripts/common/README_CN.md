@@ -11,7 +11,7 @@
 - `input_resolver.py`
   负责把输入目录解析成明确的 `source_json/source_pdf`。
 - `job_dirs.py`
-  负责创建结构化输出目录，比如 `originPDF/jsonPDF/transPDF`。
+  负责创建结构化输出目录，比如 `source/ocr/translated/typst`，并兼容旧的 `originPDF/jsonPDF/transPDF`。
 - `local_env.py`
   负责从显式参数、环境变量或 `scripts/.env/` 中读取密钥。
 - `prompt_loader.py`

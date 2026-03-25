@@ -12,17 +12,35 @@ from .deepseek_client import request_chat_content
 
 PLACEHOLDER_RE = re.compile(r"\[\[FORMULA_\d+]]")
 EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
+KEEP_ORIGIN_LABEL = "keep_origin"
 
 
-def _parse_translation_payload(content: str) -> dict[str, str]:
+def _normalize_decision(value: str) -> str:
+    normalized = (value or "translate").strip().lower().replace("-", "_")
+    if normalized in {"keep", "skip", "no_translate", "keeporigin"}:
+        return KEEP_ORIGIN_LABEL
+    if normalized == KEEP_ORIGIN_LABEL:
+        return KEEP_ORIGIN_LABEL
+    return "translate"
+
+
+def _result_entry(decision: str, translated_text: str) -> dict[str, str]:
+    return {
+        "decision": _normalize_decision(decision),
+        "translated_text": (translated_text or "").strip(),
+    }
+
+
+def _parse_translation_payload(content: str) -> dict[str, dict[str, str]]:
     payload = json.loads(extract_json_text(content))
     translations = payload.get("translations", [])
-    result: dict[str, str] = {}
+    result: dict[str, dict[str, str]] = {}
     for item in translations:
         item_id = item.get("item_id")
-        translated_text = item.get("translated_text", "").strip()
+        translated_text = item.get("translated_text", "")
+        decision = item.get("decision", "translate")
         if item_id:
-            result[item_id] = translated_text
+            result[item_id] = _result_entry(decision, translated_text)
     return result
 
 
@@ -49,7 +67,7 @@ def _looks_like_english_prose(text: str) -> bool:
     return True
 
 
-def _validate_batch_result(batch: list[dict], result: dict[str, str]) -> None:
+def _validate_batch_result(batch: list[dict], result: dict[str, dict[str, str]]) -> None:
     expected_ids = {item["item_id"] for item in batch}
     actual_ids = set(result)
     if actual_ids != expected_ids:
@@ -60,7 +78,11 @@ def _validate_batch_result(batch: list[dict], result: dict[str, str]) -> None:
     for item in batch:
         item_id = item["item_id"]
         source_text = item.get("protected_source_text", "")
-        translated_text = result.get(item_id, "")
+        translated_result = result.get(item_id, {})
+        translated_text = translated_result.get("translated_text", "")
+        decision = _normalize_decision(translated_result.get("decision", "translate"))
+        if decision == KEEP_ORIGIN_LABEL:
+            continue
         source_placeholders = _placeholders(source_text)
         translated_placeholders = _placeholders(translated_text)
         if not translated_placeholders.issubset(source_placeholders):
@@ -77,7 +99,7 @@ def _translate_single_item_plain_text(
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
     domain_guidance: str = "",
-) -> dict[str, str]:
+) -> dict[str, dict[str, str]]:
     content = request_chat_content(
         build_single_item_fallback_messages(item, domain_guidance=domain_guidance),
         api_key=api_key,
@@ -88,7 +110,31 @@ def _translate_single_item_plain_text(
         timeout=120,
         request_label=request_label,
     )
-    return {item["item_id"]: content.strip()}
+    return {item["item_id"]: _result_entry("translate", content.strip())}
+
+
+def _translate_single_item_with_decision(
+    item: dict,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+    mode: str = "fast",
+) -> dict[str, dict[str, str]]:
+    content = request_chat_content(
+        build_single_item_fallback_messages(item, domain_guidance=domain_guidance, mode=mode),
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        temperature=0.0,
+        response_format={"type": "json_object"},
+        timeout=120,
+        request_label=request_label,
+    )
+    result = _parse_translation_payload(content)
+    _validate_batch_result([item], result)
+    return result
 
 
 def _translate_batch_once(
@@ -98,9 +144,10 @@ def _translate_batch_once(
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
     domain_guidance: str = "",
-) -> dict[str, str]:
+    mode: str = "fast",
+) -> dict[str, dict[str, str]]:
     content = request_chat_content(
-        build_messages(batch, domain_guidance=domain_guidance),
+        build_messages(batch, domain_guidance=domain_guidance, mode=mode),
         api_key=api_key,
         model=model,
         base_url=base_url,
@@ -121,12 +168,14 @@ def translate_batch(
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
     domain_guidance: str = "",
-) -> dict[str, str]:
+    mode: str = "fast",
+) -> dict[str, dict[str, str]]:
     cached_result, uncached_batch = split_cached_batch(
         batch,
         model=model,
         base_url=base_url,
         domain_guidance=domain_guidance,
+        mode=mode,
     )
     if request_label and cached_result:
         print(
@@ -152,6 +201,7 @@ def translate_batch(
                 base_url=base_url,
                 request_label=f"{request_label} req#{attempt}" if request_label else "",
                 domain_guidance=domain_guidance,
+                mode=mode,
             )
             store_cached_batch(
                 uncached_batch,
@@ -159,6 +209,7 @@ def translate_batch(
                 model=model,
                 base_url=base_url,
                 domain_guidance=domain_guidance,
+                mode=mode,
             )
             merged = {**cached_result, **result}
             if request_label:
@@ -186,23 +237,36 @@ def translate_batch(
                             base_url=base_url,
                             request_label=f"{request_label} item {item_index}/{len(uncached_batch)} {item['item_id']}",
                             domain_guidance=domain_guidance,
+                            mode=mode,
                         )
                         result.update(single)
                     return result
-                single = _translate_single_item_plain_text(
-                    uncached_batch[0],
-                    api_key=api_key,
-                    model=model,
-                    base_url=base_url,
-                    request_label=f"{request_label} plain-text fallback {uncached_batch[0]['item_id']}",
-                    domain_guidance=domain_guidance,
-                )
+                if mode == "sci":
+                    single = _translate_single_item_with_decision(
+                        uncached_batch[0],
+                        api_key=api_key,
+                        model=model,
+                        base_url=base_url,
+                        request_label=f"{request_label} single-item fallback {uncached_batch[0]['item_id']}",
+                        domain_guidance=domain_guidance,
+                        mode=mode,
+                    )
+                else:
+                    single = _translate_single_item_plain_text(
+                        uncached_batch[0],
+                        api_key=api_key,
+                        model=model,
+                        base_url=base_url,
+                        request_label=f"{request_label} plain-text fallback {uncached_batch[0]['item_id']}",
+                        domain_guidance=domain_guidance,
+                    )
                 store_cached_batch(
                     uncached_batch,
                     single,
                     model=model,
                     base_url=base_url,
                     domain_guidance=domain_guidance,
+                    mode=mode,
                 )
                 return {**cached_result, **single}
             time.sleep(min(8, 2 * attempt))
@@ -218,5 +282,14 @@ def translate_items_to_text_map(
     model: str = "deepseek-chat",
     base_url: str = "https://api.deepseek.com/v1",
     domain_guidance: str = "",
+    mode: str = "fast",
 ) -> dict[str, str]:
-    return translate_batch(items, api_key=api_key, model=model, base_url=base_url, domain_guidance=domain_guidance)
+    translated = translate_batch(
+        items,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        domain_guidance=domain_guidance,
+        mode=mode,
+    )
+    return {item_id: result.get("translated_text", "") for item_id, result in translated.items()}

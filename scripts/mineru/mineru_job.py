@@ -187,9 +187,10 @@ def main() -> None:
 
     if source_pdf_saved is not None:
         print(f"saved source pdf: {source_pdf_saved}")
-    print(f"originPDF: {job_dirs.origin_pdf_dir}")
-    print(f"jsonPDF: {job_dirs.json_pdf_dir}")
-    print(f"transPDF: {job_dirs.trans_pdf_dir}")
+    print(f"source: {job_dirs.source_dir}")
+    print(f"ocr: {job_dirs.ocr_dir}")
+    print(f"translated: {job_dirs.translated_dir}")
+    print(f"typst: {job_dirs.typst_dir}")
     print(f"job dir: {job_dirs.root}")
 
 

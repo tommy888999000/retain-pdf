@@ -52,15 +52,21 @@
 
 结构化任务输出统一落到：
 
-- `output/<job-id>/originPDF`
-- `output/<job-id>/jsonPDF`
-- `output/<job-id>/transPDF`
+- `output/<job-id>/source`
+- `output/<job-id>/ocr`
+- `output/<job-id>/translated`
+- `output/<job-id>/typst`
 
 其中：
 
-- `jsonPDF/unpacked/layout.json` 是翻译阶段默认使用的 OCR 输入
-- `transPDF/translations` 是中间翻译结果
-- `transPDF/*.pdf` 是最终输出 PDF
+- `ocr/unpacked/layout.json` 是翻译阶段默认使用的 OCR 输入
+- `translated/translations` 是中间翻译结果
+- `translated/*.pdf` 是最终输出 PDF
+- `typst/` 保留 Typst 中间产物，方便查错和回溯
+
+兼容说明：
+
+- 旧任务目录如果还是 `originPDF/jsonPDF/transPDF`，当前后端和下载接口仍然兼容
 
 ## 目录索引
 

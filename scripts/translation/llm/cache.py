@@ -16,16 +16,22 @@ _PROMPT_HASH = ""
 _CACHE_LOCK = threading.Lock()
 
 
-def _prompt_hash() -> str:
+def _prompt_hash(mode: str = "fast") -> str:
     global _PROMPT_HASH
-    if _PROMPT_HASH:
+    cache_key = mode.strip() or "fast"
+    if _PROMPT_HASH and cache_key == "fast":
         return _PROMPT_HASH
     digest = hashlib.sha256()
     digest.update(load_prompt("translation_system.txt").encode("utf-8"))
     digest.update(b"\n---\n")
     digest.update(load_prompt("translation_task.txt").encode("utf-8"))
-    _PROMPT_HASH = digest.hexdigest()
-    return _PROMPT_HASH
+    if cache_key == "sci":
+        digest.update(b"\n---\n")
+        digest.update(load_prompt("translation_sci_decision.txt").encode("utf-8"))
+    result = digest.hexdigest()
+    if cache_key == "fast":
+        _PROMPT_HASH = result
+    return result
 
 
 def _unit_source_text(item: dict) -> str:
@@ -42,12 +48,14 @@ def cache_key_for_item(
     model: str,
     base_url: str,
     domain_guidance: str = "",
+    mode: str = "fast",
 ) -> str:
     payload = {
         "model": model.strip(),
         "base_url": normalize_base_url(base_url),
         "domain_guidance": (domain_guidance or "").strip(),
-        "prompt_hash": _prompt_hash(),
+        "mode": mode.strip() or "fast",
+        "prompt_hash": _prompt_hash(mode=mode),
         "source_text": _unit_source_text(item),
     }
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -64,34 +72,55 @@ def load_cached_translation(
     model: str,
     base_url: str,
     domain_guidance: str = "",
-) -> str:
-    cache_key = cache_key_for_item(item, model=model, base_url=base_url, domain_guidance=domain_guidance)
+    mode: str = "fast",
+) -> dict[str, str]:
+    cache_key = cache_key_for_item(
+        item,
+        model=model,
+        base_url=base_url,
+        domain_guidance=domain_guidance,
+        mode=mode,
+    )
     path = _cache_path(cache_key)
     if not path.exists():
-        return ""
+        return {}
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
-        return ""
-    return str(payload.get("translated_text", "") or "").strip()
+        return {}
+    decision = str(payload.get("decision", "translate") or "translate").strip() or "translate"
+    translated_text = str(payload.get("translated_text", "") or "").strip()
+    return {
+        "decision": decision,
+        "translated_text": translated_text,
+    }
 
 
 def store_cached_translation(
     item: dict,
-    translated_text: str,
+    translation_result: dict[str, str],
     *,
     model: str,
     base_url: str,
     domain_guidance: str = "",
+    mode: str = "fast",
 ) -> None:
-    translated_text = (translated_text or "").strip()
-    if not translated_text:
+    decision = str(translation_result.get("decision", "translate") or "translate").strip() or "translate"
+    translated_text = str(translation_result.get("translated_text", "") or "").strip()
+    if not translated_text and decision != "keep_origin":
         return
-    cache_key = cache_key_for_item(item, model=model, base_url=base_url, domain_guidance=domain_guidance)
+    cache_key = cache_key_for_item(
+        item,
+        model=model,
+        base_url=base_url,
+        domain_guidance=domain_guidance,
+        mode=mode,
+    )
     path = _cache_path(cache_key)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "cache_key": cache_key,
+        "decision": decision,
         "translated_text": translated_text,
     }
     temp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{threading.get_ident()}")
@@ -106,18 +135,20 @@ def split_cached_batch(
     model: str,
     base_url: str,
     domain_guidance: str = "",
-) -> tuple[dict[str, str], list[dict]]:
-    cached: dict[str, str] = {}
+    mode: str = "fast",
+) -> tuple[dict[str, dict[str, str]], list[dict]]:
+    cached: dict[str, dict[str, str]] = {}
     missing: list[dict] = []
     for item in batch:
-        translated_text = load_cached_translation(
+        cached_result = load_cached_translation(
             item,
             model=model,
             base_url=base_url,
             domain_guidance=domain_guidance,
+            mode=mode,
         )
-        if translated_text:
-            cached[item["item_id"]] = translated_text
+        if cached_result:
+            cached[item["item_id"]] = cached_result
         else:
             missing.append(item)
     return cached, missing
@@ -125,21 +156,23 @@ def split_cached_batch(
 
 def store_cached_batch(
     batch: list[dict],
-    translated: dict[str, str],
+    translated: dict[str, dict[str, str]],
     *,
     model: str,
     base_url: str,
     domain_guidance: str = "",
+    mode: str = "fast",
 ) -> None:
     for item in batch:
         item_id = item.get("item_id", "")
-        translated_text = translated.get(item_id, "")
-        if not translated_text:
+        translated_result = translated.get(item_id, {})
+        if not translated_result:
             continue
         store_cached_translation(
             item,
-            translated_text,
+            translated_result,
             model=model,
             base_url=base_url,
             domain_guidance=domain_guidance,
+            mode=mode,
         )

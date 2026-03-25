@@ -80,6 +80,7 @@ def translate_book_with_global_continuations(
         model=model,
         base_url=base_url,
         domain_guidance=domain_guidance,
+        mode=mode,
     )
 
     translated_pages_map = {page_idx: load_translations(translation_paths[page_idx]) for page_idx in sorted(page_payloads)}

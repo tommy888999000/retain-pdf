@@ -34,12 +34,12 @@ def should_apply_after_last_title_cutoff(mode: str) -> bool:
     return mode == "sci"
 
 
-def should_apply_narrow_body_noise_skip() -> bool:
-    return True
+def should_apply_narrow_body_noise_skip(mode: str) -> bool:
+    return mode != "sci"
 
 
-def should_apply_metadata_fragment_skip() -> bool:
-    return True
+def should_apply_metadata_fragment_skip(mode: str) -> bool:
+    return mode != "sci"
 
 
 def should_apply_candidate_continuation_review() -> bool:
@@ -96,10 +96,10 @@ def build_translation_policy_config(
         enable_after_last_title_cutoff=should_apply_after_last_title_cutoff(mode)
         if enable_after_last_title_cutoff is None
         else enable_after_last_title_cutoff,
-        enable_narrow_body_noise_skip=should_apply_narrow_body_noise_skip()
+        enable_narrow_body_noise_skip=should_apply_narrow_body_noise_skip(mode)
         if enable_narrow_body_noise_skip is None
         else enable_narrow_body_noise_skip,
-        enable_metadata_fragment_skip=should_apply_metadata_fragment_skip()
+        enable_metadata_fragment_skip=should_apply_metadata_fragment_skip(mode)
         if enable_metadata_fragment_skip is None
         else enable_metadata_fragment_skip,
         metadata_fragment_max_page_idx=1 if metadata_fragment_max_page_idx is None else metadata_fragment_max_page_idx,

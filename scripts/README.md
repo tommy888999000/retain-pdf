@@ -50,7 +50,7 @@ Current status:
 - `prompt_loader.py`
   Loads editable prompt files from `scripts/prompts/`.
 - `job_dirs.py`
-  Creates structured output directories such as `originPDF`, `jsonPDF`, and `transPDF`.
+  Creates structured output directories such as `source`, `ocr`, `translated`, and `typst`.
 - `local_env.py`
   Loads local secrets and environment variables from `scripts/.env/`.
 
@@ -227,6 +227,15 @@ Common output behavior:
 - `--render-mode dual` outputs side-by-side pages: left original, right translated
 - MinerU integrated flows can also write everything into one structured job directory under `output/<job-id>/`
 
+Current structured layout:
+
+- `output/<job-id>/source`
+- `output/<job-id>/ocr`
+- `output/<job-id>/translated`
+- `output/<job-id>/typst`
+
+Legacy jobs using `originPDF/jsonPDF/transPDF` remain supported by the backend.
+
 Examples:
 
 Recommended MinerU all-in-one pipeline:
@@ -242,11 +251,12 @@ python scripts/run_mineru_case.py \
 
 This creates:
 
-- `output/<job-id>/originPDF`
-- `output/<job-id>/jsonPDF`
-- `output/<job-id>/transPDF`
+- `output/<job-id>/source`
+- `output/<job-id>/ocr`
+- `output/<job-id>/translated`
+- `output/<job-id>/typst`
 
-`layout.json` is used as the default MinerU OCR JSON for the translation pipeline.
+`ocr/unpacked/layout.json` is used as the default MinerU OCR JSON for the translation pipeline.
 
 Low-level MinerU implementation note:
 
@@ -272,21 +282,22 @@ python scripts/mineru/migrate_legacy_output.py \
 
 This creates:
 
-- `output/202603212300-demo/originPDF`
-- `output/202603212300-demo/jsonPDF`
-- `output/202603212300-demo/transPDF`
+- `output/202603212300-demo/source`
+- `output/202603212300-demo/ocr`
+- `output/202603212300-demo/translated`
+- `output/202603212300-demo/typst`
 
 Use MinerU `layout.json` as the main OCR JSON input:
 
 ```bash
 python scripts/run_case.py \
-  --source-json output/202603212300-demo/jsonPDF/unpacked/layout.json \
-  --source-pdf output/202603212300-demo/originPDF/test9.pdf \
+  --source-json output/202603212300-demo/ocr/unpacked/layout.json \
+  --source-pdf output/202603212300-demo/source/test9.pdf \
   --mode sci \
   --model Q3.5-turbo \
   --base-url http://1.94.67.196:10001/v1 \
-  --output-dir 202603212300-demo/transPDF/translations \
-  --output 202603212300-demo/transPDF/test9-translated.pdf
+  --output-dir 202603212300-demo/translated/translations \
+  --output 202603212300-demo/translated/test9-translated.pdf
 ```
 
 Low-level MinerU API script remains available when you only want the raw API response:

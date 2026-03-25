@@ -7,7 +7,7 @@
 - 向 MinerU 提交任务
 - 查询任务状态
 - 下载并解包 MinerU 结果
-- 组织 `output/<job-id>/originPDF`、`jsonPDF`、`transPDF`
+- 组织 `output/<job-id>/source`、`ocr`、`translated`、`typst`
 - 提供翻译阶段所需的 `layout.json`
 
 这里不做的事情：
@@ -34,13 +34,14 @@
 
 ## 目录结构
 
-- `output/<job-id>/originPDF`
-- `output/<job-id>/jsonPDF`
-- `output/<job-id>/transPDF`
+- `output/<job-id>/source`
+- `output/<job-id>/ocr`
+- `output/<job-id>/translated`
+- `output/<job-id>/typst`
 
 ## 默认约定
 
-- 翻译阶段默认使用 `jsonPDF/unpacked/layout.json`
+- 翻译阶段默认使用 `ocr/unpacked/layout.json`
 - `content_list_v2.json` 目前仅用于实验和适配，不是主路径
 
 ## 与主流程的关系
@@ -50,8 +51,12 @@
 1. `mineru_job.py` 或 `mineru_pipeline.py` 向 MinerU 提交 PDF
 2. 轮询直到任务完成
 3. 下载并解包结果
-4. 把原始 PDF 复制到 `originPDF`
-5. 把解析结果放到 `jsonPDF/unpacked`
+4. 把原始 PDF 复制到 `source`
+5. 把解析结果放到 `ocr/unpacked`
 6. 后续由 `pipeline` 调 `translation` 和 `rendering` 完成剩余流程
 
 也就是说，这一层的职责是“把 PDF 变成主链路可消费的 OCR 输入”，而不是承担后续业务。
+
+兼容说明：
+
+- 老任务目录如果还是 `originPDF/jsonPDF/transPDF`，当前后端和下载接口仍然兼容

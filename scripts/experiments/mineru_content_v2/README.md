@@ -7,12 +7,12 @@ It is intentionally isolated from the stable main pipeline.
 
 Current recommendation:
 
-- use `jsonPDF/unpacked/layout.json` as the main MinerU-to-pipeline JSON
+- use `ocr/unpacked/layout.json` as the main MinerU-to-pipeline JSON
 - keep `content_list_v2.json` only for experiments around finer text/formula structure
 
 ## Input
 
-- `output/<job-id>/jsonPDF/unpacked/content_list_v2.json`
+- `output/<job-id>/ocr/unpacked/content_list_v2.json`
 
 ## Output
 
@@ -27,8 +27,8 @@ A normalized JSON with:
 
 ```bash
 python scripts/experiments/mineru_content_v2/adapt_content_list_v2.py \
-  --input output/<job-id>/jsonPDF/unpacked/content_list_v2.json \
-  --output output/<job-id>/jsonPDF/mineru_content_v2_adapted.json
+  --input output/<job-id>/ocr/unpacked/content_list_v2.json \
+  --output output/<job-id>/ocr/mineru_content_v2_adapted.json
 ```
 
 ## Current Scope

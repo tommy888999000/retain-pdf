@@ -22,19 +22,26 @@ output/
 ```text
 output/
   20260322235425-2b8641/
-    originPDF/
-    jsonPDF/
-    transPDF/
+    source/
+    ocr/
+    translated/
+    typst/
 ```
 
 ## 各目录含义
 
-- `originPDF/`
+- `source/`
   原始输入 PDF 或运行时来源文件
-- `jsonPDF/`
+- `ocr/`
   OCR 结果、MinerU 解包内容、结构化中间数据
-- `transPDF/`
+- `translated/`
   最终翻译 PDF、翻译中间结果、摘要信息
+- `typst/`
+  Typst 中间产物，便于排查渲染问题和回溯源码
+
+兼容说明：
+
+- 老任务目录如果还是 `originPDF/jsonPDF/transPDF`，当前后端仍然兼容读取和下载
 
 ## API 与前端下载
 

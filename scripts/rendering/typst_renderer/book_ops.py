@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import fitz
@@ -15,6 +14,7 @@ from rendering.typst_renderer.overlay_ops import overlay_translated_items_on_pag
 from rendering.typst_renderer.overlay_ops import overlay_translated_pages_on_doc
 from rendering.typst_renderer.sanitize import sanitize_page_specs_for_typst_book_background
 from rendering.typst_renderer.shared import default_typst_temp_root
+from rendering.typst_renderer.shared import prepare_typst_work_dir
 
 
 def build_single_page_typst_pdf(
@@ -162,37 +162,36 @@ def build_book_typst_background_pdf(
 
     typst_temp_root = temp_root or default_typst_temp_root(output_pdf_path)
     typst_temp_root.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="typst-background-", dir=typst_temp_root) as temp_dir:
-        work_dir = Path(temp_dir)
-        try:
-            background_pdf = compile_typst_book_background_pdf(
-                source_pdf_path=source_pdf_path,
-                page_specs=page_specs,
-                stem="book-background-overlay",
-                font_family=font_family,
-                font_paths=font_paths,
-                work_dir=work_dir,
-            )
-        except RuntimeError as exc:
-            print("typst background book compile failed; sanitizing pages", flush=True)
-            print(str(exc), flush=True)
-            sanitized_page_specs = sanitize_page_specs_for_typst_book_background(
-                page_specs,
-                stem="book-background-overlay",
-                font_family=font_family,
-                font_paths=font_paths,
-                work_dir=work_dir,
-            )
-            background_pdf = compile_typst_book_background_pdf(
-                source_pdf_path=source_pdf_path,
-                page_specs=sanitized_page_specs,
-                stem="book-background-overlay-sanitized",
-                font_family=font_family,
-                font_paths=font_paths,
-                work_dir=work_dir,
-            )
-        background_doc = fitz.open(background_pdf)
-        try:
-            save_optimized_pdf(background_doc, output_pdf_path)
-        finally:
-            background_doc.close()
+    work_dir = prepare_typst_work_dir(typst_temp_root, "background-book")
+    try:
+        background_pdf = compile_typst_book_background_pdf(
+            source_pdf_path=source_pdf_path,
+            page_specs=page_specs,
+            stem="book-background-overlay",
+            font_family=font_family,
+            font_paths=font_paths,
+            work_dir=work_dir,
+        )
+    except RuntimeError as exc:
+        print("typst background book compile failed; sanitizing pages", flush=True)
+        print(str(exc), flush=True)
+        sanitized_page_specs = sanitize_page_specs_for_typst_book_background(
+            page_specs,
+            stem="book-background-overlay",
+            font_family=font_family,
+            font_paths=font_paths,
+            work_dir=work_dir,
+        )
+        background_pdf = compile_typst_book_background_pdf(
+            source_pdf_path=source_pdf_path,
+            page_specs=sanitized_page_specs,
+            stem="book-background-overlay-sanitized",
+            font_family=font_family,
+            font_paths=font_paths,
+            work_dir=work_dir,
+        )
+    background_doc = fitz.open(background_pdf)
+    try:
+        save_optimized_pdf(background_doc, output_pdf_path)
+    finally:
+        background_doc.close()

@@ -94,7 +94,8 @@ def run_mineru_to_job_dir(args: Namespace) -> tuple[Path, Path, Path]:
     )
     layout_json_path = resolve_layout_json_path(unpack_dir)
 
-    print(f"originPDF: {job_dirs.origin_pdf_dir}")
-    print(f"jsonPDF: {job_dirs.json_pdf_dir}")
-    print(f"transPDF: {job_dirs.trans_pdf_dir}")
+    print(f"source: {job_dirs.source_dir}")
+    print(f"ocr: {job_dirs.ocr_dir}")
+    print(f"translated: {job_dirs.translated_dir}")
+    print(f"typst: {job_dirs.typst_dir}")
     return job_dirs.root, source_pdf_path, layout_json_path

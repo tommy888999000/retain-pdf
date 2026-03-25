@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -14,6 +13,7 @@ from rendering.render_payloads import prepare_render_payloads_by_page
 from rendering.typst_renderer.compiler import compile_typst_book_overlay_pdf
 from rendering.typst_renderer.sanitize import compile_overlay_pdf_resilient
 from rendering.typst_renderer.shared import default_compile_workers
+from rendering.typst_renderer.shared import prepare_typst_work_dir
 
 
 def overlay_translated_items_on_page(
@@ -28,22 +28,21 @@ def overlay_translated_items_on_page(
     redact_translated_text_areas(page, translated_items, cover_only=cover_only)
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="typst-overlay-", dir=base_dir) as temp_dir:
-        work_dir = Path(temp_dir)
-        overlay_pdf = compile_overlay_pdf_resilient(
-            page.rect.width,
-            page.rect.height,
-            translated_items,
-            stem=stem,
-            font_family=font_family,
-            font_paths=font_paths,
-            work_dir=work_dir,
-        )
-        overlay_doc = fitz.open(overlay_pdf)
-        try:
-            page.show_pdf_page(page.rect, overlay_doc, 0, overlay=True)
-        finally:
-            overlay_doc.close()
+    work_dir = prepare_typst_work_dir(base_dir, "single-page", stem)
+    overlay_pdf = compile_overlay_pdf_resilient(
+        page.rect.width,
+        page.rect.height,
+        translated_items,
+        stem=stem,
+        font_family=font_family,
+        font_paths=font_paths,
+        work_dir=work_dir,
+    )
+    overlay_doc = fitz.open(overlay_pdf)
+    try:
+        page.show_pdf_page(page.rect, overlay_doc, 0, overlay=True)
+    finally:
+        overlay_doc.close()
 
 
 def _compile_overlay_with_fallback(
@@ -57,7 +56,7 @@ def _compile_overlay_with_fallback(
 ) -> Path:
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
-    work_dir = Path(tempfile.mkdtemp(prefix="typst-page-", dir=base_dir))
+    work_dir = prepare_typst_work_dir(base_dir, "page-overlays", stem)
     return compile_overlay_pdf_resilient(
         page_width,
         page_height,
@@ -78,7 +77,7 @@ def _compile_book_overlay_with_fallback(
 ) -> Path:
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
-    work_dir = Path(tempfile.mkdtemp(prefix="typst-book-", dir=base_dir))
+    work_dir = prepare_typst_work_dir(base_dir, "book-overlays", stem)
     return compile_typst_book_overlay_pdf(
         page_specs,
         stem=stem,
@@ -109,12 +108,6 @@ def _overlay_pages_from_single_pdf(
             page.show_pdf_page(page.rect, overlay_doc, overlay_page_idx, overlay=True)
     finally:
         overlay_doc.close()
-        try:
-            overlay_pdf_path.unlink(missing_ok=True)
-            overlay_pdf_path.with_suffix(".typ").unlink(missing_ok=True)
-            overlay_pdf_path.parent.rmdir()
-        except Exception:
-            pass
 
 
 def _overlay_pages_via_page_fallback(
@@ -162,13 +155,6 @@ def _overlay_pages_via_page_fallback(
             page.show_pdf_page(page.rect, overlay_doc, 0, overlay=True)
         finally:
             overlay_doc.close()
-            try:
-                overlay_path = overlay_paths[page_idx]
-                overlay_path.unlink(missing_ok=True)
-                overlay_path.with_suffix(".typ").unlink(missing_ok=True)
-                overlay_path.parent.rmdir()
-            except Exception:
-                pass
 
 
 def overlay_translated_pages_on_doc(

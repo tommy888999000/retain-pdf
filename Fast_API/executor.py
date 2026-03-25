@@ -3,10 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 import time
 import uuid
 import zipfile
 from pathlib import Path
+
+sys.path.append(str((Path(__file__).resolve().parent.parent / "scripts")))
+
+from config.output_layout import LEGACY_OCR_DIR_NAME
+from config.output_layout import OCR_DIR_NAME
 
 from .models import DOWNLOADS_DIR
 from .models import JobRecord
@@ -20,9 +26,10 @@ from .models import SubmitJobResponse
 
 RUN_CASE_PATTERNS = {
     "job_root": re.compile(r"^job root:\s*(.+)$", re.MULTILINE),
-    "origin_pdf_dir": re.compile(r"^originPDF:\s*(.+)$", re.MULTILINE),
-    "json_pdf_dir": re.compile(r"^jsonPDF:\s*(.+)$", re.MULTILINE),
-    "trans_pdf_dir": re.compile(r"^transPDF:\s*(.+)$", re.MULTILINE),
+    "origin_pdf_dir": re.compile(r"^(?:source|originPDF):\s*(.+)$", re.MULTILINE),
+    "json_pdf_dir": re.compile(r"^(?:ocr|jsonPDF):\s*(.+)$", re.MULTILINE),
+    "trans_pdf_dir": re.compile(r"^(?:translated|transPDF):\s*(.+)$", re.MULTILINE),
+    "typst_dir": re.compile(r"^(?:typst|typstPDF):\s*(.+)$", re.MULTILINE),
     "translation_dir": re.compile(r"^translation dir:\s*(.+)$", re.MULTILINE),
     "output_pdf": re.compile(r"^output pdf:\s*(.+)$", re.MULTILINE),
     "pages_processed": re.compile(r"^pages processed:\s*(\d+)$", re.MULTILINE),
@@ -421,6 +428,14 @@ def _resolve_path(path_text: str | None) -> Path | None:
     return path.resolve()
 
 
+def _first_existing_dir(job_root: Path, *names: str) -> Path:
+    for name in names:
+        path = job_root / name
+        if path.exists():
+            return path
+    return job_root / names[0]
+
+
 def _add_file_to_zip(zip_file: zipfile.ZipFile, file_path: Path, arcname: str) -> None:
     if file_path.exists() and file_path.is_file():
         zip_file.write(file_path, arcname)
@@ -446,7 +461,8 @@ def build_job_download_zip(record: JobRecord) -> Path:
         raise RuntimeError("job root is missing")
 
     zip_path = DOWNLOADS_DIR / f"{record.job_id}.zip"
-    unpacked_dir = job_root / "jsonPDF" / "unpacked"
+    ocr_dir = _first_existing_dir(job_root, OCR_DIR_NAME, LEGACY_OCR_DIR_NAME)
+    unpacked_dir = ocr_dir / "unpacked"
     markdown_path = unpacked_dir / "full.md"
     markdown_images_dir = unpacked_dir / "images"
     output_pdf = _resolve_path(getattr(record.artifacts, "output_pdf", None))

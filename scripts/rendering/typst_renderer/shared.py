@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
+from config.output_layout import LEGACY_TRANSLATED_DIR_NAME
+from config.output_layout import TYPST_DIR_NAME
+from config.output_layout import TRANSLATED_DIR_NAME
 from config import paths
 from rendering.math_utils import aggressively_simplify_formula_for_latex_math
 
@@ -65,6 +69,17 @@ def default_compile_workers(page_count: int) -> int:
 
 def default_typst_temp_root(output_pdf_path: Path) -> Path:
     for parent in output_pdf_path.parents:
-        if parent.name == "transPDF" and parent.parent != parent:
-            return parent.parent / "typstPDF"
-    return output_pdf_path.parent / "typstPDF"
+        if parent.name in {TRANSLATED_DIR_NAME, LEGACY_TRANSLATED_DIR_NAME} and parent.parent != parent:
+            return parent.parent / TYPST_DIR_NAME
+    return output_pdf_path.parent / TYPST_DIR_NAME
+
+
+def prepare_typst_work_dir(base_dir: Path, *parts: str) -> Path:
+    work_dir = base_dir.joinpath(*parts)
+    if work_dir.exists():
+        if work_dir.is_dir():
+            shutil.rmtree(work_dir)
+        else:
+            work_dir.unlink()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir

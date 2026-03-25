@@ -80,4 +80,4 @@ python -m http.server 40001 --bind 0.0.0.0
 
 - 日常翻译优先使用稳定接口
 - 大批量任务建议通过 API 方式接入
-- 最终交付优先查看 `transPDF/` 下的结果
+- 最终交付优先查看 `translated/` 下的结果

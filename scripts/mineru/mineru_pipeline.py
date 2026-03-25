@@ -8,6 +8,7 @@ from config import fonts
 from config import layout
 from config import paths
 from config import runtime
+from common.job_dirs import locate_translated_dir
 from mineru.job_flow import run_mineru_to_job_dir
 from mineru.summary import print_pipeline_summary
 from mineru.summary import write_pipeline_summary
@@ -80,7 +81,7 @@ def main() -> None:
     )
 
     job_root, source_pdf_path, layout_json_path = run_mineru_to_job_dir(args)
-    trans_pdf_dir = job_root / "transPDF"
+    trans_pdf_dir = locate_translated_dir(job_root)
     translations_dir = trans_pdf_dir / "translations"
     translated_pdf_name = args.translated_pdf_name.strip() or f"{source_pdf_path.stem}-translated.pdf"
     output_pdf_path = trans_pdf_dir / translated_pdf_name

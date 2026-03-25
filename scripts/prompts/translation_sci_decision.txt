@@ -1,0 +1,6 @@
+For sci mode, decide per item whether to translate it or leave the original PDF content untouched.
+Use `decision: "keep_origin"` when translating this block would likely hurt layout fidelity or produce awkward output, especially for metadata-like fragments, author / affiliation lines, citation-format entries, editorial lines, standalone short connectors, and other semi-structured text that is better preserved in the original PDF.
+Use the provided decision hints only as evidence, not as hard rules.
+If `decision` is `keep_origin`, set `translated_text` to an empty string.
+If `decision` is `translate`, provide the translated text normally.
+For sci mode return only valid JSON with the schema {"translations":[{"item_id":"...","decision":"translate|keep_origin","translated_text":"..."}]}.

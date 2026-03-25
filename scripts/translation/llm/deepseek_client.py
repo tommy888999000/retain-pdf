@@ -7,6 +7,7 @@ from typing import Any
 import requests
 
 from common.prompt_loader import load_prompt
+from translation.llm.decision_hints import build_decision_hints
 
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
@@ -14,10 +15,12 @@ DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
 _THREAD_LOCAL = threading.local()
 
 
-def build_messages(batch: list[dict], domain_guidance: str = "") -> list[dict[str, str]]:
+def build_messages(batch: list[dict], domain_guidance: str = "", mode: str = "fast") -> list[dict[str, str]]:
     system_prompt = load_prompt("translation_system.txt")
     if domain_guidance.strip():
         system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
+    if mode == "sci":
+        system_prompt = f"{system_prompt}\n\n{load_prompt('translation_sci_decision.txt')}"
     groups: dict[str, dict[str, Any]] = {}
     items_payload = []
     for item in batch:
@@ -26,6 +29,8 @@ def build_messages(batch: list[dict], domain_guidance: str = "") -> list[dict[st
             "item_id": item["item_id"],
             "source_text": item["protected_source_text"],
         }
+        if mode == "sci":
+            item_payload["decision_hints"] = build_decision_hints(item)
         if group_id:
             item_payload["continuation_group"] = group_id
             if item.get("continuation_prev_text"):
@@ -55,10 +60,29 @@ def build_messages(batch: list[dict], domain_guidance: str = "") -> list[dict[st
     ]
 
 
-def build_single_item_fallback_messages(item: dict, domain_guidance: str = "") -> list[dict[str, str]]:
+def build_single_item_fallback_messages(item: dict, domain_guidance: str = "", mode: str = "fast") -> list[dict[str, str]]:
     system_prompt = load_prompt("translation_system.txt")
     if domain_guidance.strip():
         system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
+    if mode == "sci":
+        system_prompt = f"{system_prompt}\n\n{load_prompt('translation_sci_decision.txt')}"
+        user_prompt = json.dumps(
+            {
+                "task": load_prompt("translation_task.txt"),
+                "items": [
+                    {
+                        "item_id": item["item_id"],
+                        "source_text": item["protected_source_text"],
+                        "decision_hints": build_decision_hints(item),
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        )
+        return [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
     fallback_system = (
         f"{system_prompt}\n"
         "You are translating exactly one item.\n"
@@ -179,10 +203,11 @@ def translate_batch(
     api_key: str = "",
     model: str = "deepseek-chat",
     base_url: str = DEFAULT_BASE_URL,
+    mode: str = "fast",
 ) -> dict[str, str]:
     from .retrying_translator import translate_batch as _translate_batch
 
-    return _translate_batch(batch, api_key=api_key, model=model, base_url=base_url)
+    return _translate_batch(batch, api_key=api_key, model=model, base_url=base_url, mode=mode)
 
 
 def get_api_key(explicit_api_key: str = "", env_var: str = DEFAULT_API_KEY_ENV, required: bool = True) -> str:

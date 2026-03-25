@@ -120,6 +120,7 @@ def translate_items_to_path(
                 model=model,
                 base_url=base_url,
                 request_label=batch_label,
+                mode=mode,
             )
             apply_translated_text_map(payload, translated)
             save_translations(translation_path, payload)
@@ -136,6 +137,7 @@ def translate_items_to_path(
                     model=model,
                     base_url=base_url,
                     request_label=f"{label}: batch {index}/{total_batches}",
+                    mode=mode,
                 ): (index, batch)
                 for index, batch in enumerate(batches, start=1)
             }

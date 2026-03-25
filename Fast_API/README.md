@@ -46,16 +46,22 @@ Both API routes now write into a structured job directory:
 ```text
 output/
   202603220035-rtpvxh/
-    originPDF/
-    jsonPDF/
-    transPDF/
+    source/
+    ocr/
+    translated/
+    typst/
 ```
 
 Typical meaning:
 
-- `originPDF/`: original input PDF copies
-- `jsonPDF/`: OCR JSON inputs or MinerU unpacked outputs like `layout.json`
-- `transPDF/`: final translated PDF, translation intermediates, and pipeline summary
+- `source/`: original input PDF copies
+- `ocr/`: OCR JSON inputs or MinerU unpacked outputs like `layout.json`
+- `translated/`: final translated PDF, translation intermediates, and pipeline summary
+- `typst/`: retained Typst intermediate `.typ/.pdf` artifacts for debugging and backtracking
+
+Legacy note:
+
+- old jobs under `originPDF/jsonPDF/transPDF` are still readable by the API and download route
 
 ## `POST /v1/run-case`
 
@@ -112,7 +118,7 @@ This route runs the full chain:
 1. MinerU parse
 2. download/unpack result bundle
 3. translate from `layout.json`
-4. render translated PDF into `transPDF/`
+4. render translated PDF into `translated/`
 
 Example:
 
@@ -217,9 +223,8 @@ curl -L http://127.0.0.1:40000/v1/jobs/8a2f5b5c1d9e/download -o 8a2f5b5c1d9e.zip
 
 Returned zip includes:
 
-- original PDF files from `originPDF/`
-- final translated PDF from `transPDF/`
-- all files under `jsonPDF/unpacked/`
+- final translated PDF from `translated/`
+- all files under `ocr/unpacked/`
 - `pipeline_summary.json` when present
 
 Returned job payload includes:
@@ -268,5 +273,6 @@ Upload-based MinerU jobs reuse the same artifact parsing. Their stored request p
 - Long-running tasks no longer block the HTTP request.
 - Passing `output/...` as API output paths is unnecessary. The server already writes inside a structured job folder under `output/`.
 - Uploaded files are stored under `Fast_API/uploads/<job_id>/`.
-- The upload route passes the generated `job_id` through to `scripts/run_mineru_case.py`, so final outputs still land under `output/<job_id>/originPDF|jsonPDF|transPDF`.
+- The upload route passes the generated `job_id` through to `scripts/run_mineru_case.py`, so final outputs land under `output/<job_id>/source|ocr|translated|typst`.
+- Legacy jobs using `originPDF|jsonPDF|transPDF` remain downloadable.
 - Download bundles are cached under `Fast_API/downloads/<job_id>.zip`.

@@ -423,6 +423,7 @@ class RunCaseArtifacts(BaseModel):
     origin_pdf_dir: str | None = None
     json_pdf_dir: str | None = None
     trans_pdf_dir: str | None = None
+    typst_dir: str | None = None
     translation_dir: str | None = None
     output_pdf: str | None = None
     pages_processed: int | None = None
