@@ -46,6 +46,19 @@ GREEK_RUN_RE = re.compile(
     """,
     re.VERBOSE,
 )
+GREEK_COMMA_PAIR_RE = re.compile(
+    r"""
+    ^
+    (?:\\alpha|α)
+    \s*
+    (?:\{\s*,\s*\}|,)
+    \s*
+    (?:\\beta|β)
+    (?:\s*-\s*[A-Za-z]+)?
+    $
+    """,
+    re.VERBOSE,
+)
 
 
 def _prepare_text(text: str) -> str:
@@ -56,6 +69,8 @@ def _iter_formula_matches(text: str):
     for pattern in (LATEX_FORMULA_RE, GREEK_RUN_RE):
         for match in pattern.finditer(text):
             value = match.group(0).strip()
+            if GREEK_COMMA_PAIR_RE.match(value):
+                continue
             if any(marker in value for marker in ("\\", "_", "^", "{", "}", "α", "β", "γ", "μ", "φ", "ζ", "η", "∂")):
                 yield match.start(), match.end(), value
 
@@ -95,6 +110,8 @@ def protect_inline_formulas_in_segments(segments: list[dict]) -> tuple[str, list
         if not content:
             continue
         if segment.get("type") == "inline_equation":
+            if GREEK_COMMA_PAIR_RE.match(content):
+                continue
             placeholder = f"[[FORMULA_{len(formula_map) + 1}]]"
             formula_map.append({"placeholder": placeholder, "formula_text": content})
             chunks.append(placeholder)

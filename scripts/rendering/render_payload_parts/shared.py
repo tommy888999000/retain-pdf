@@ -11,6 +11,8 @@ ZH_CHAR_RE = re.compile(r"[\u4e00-\u9fff]")
 COMPACT_TRIGGER_RATIO = 0.9
 COMPACT_SCALE = 0.9
 HEAVY_COMPACT_RATIO = 1.0
+LAYOUT_COMPACT_TRIGGER_RATIO = 0.9
+LAYOUT_HEAVY_COMPACT_RATIO = 1.04
 
 
 def is_flag_like_plain_text_block(item: dict) -> bool:
@@ -64,6 +66,27 @@ def translation_density_ratio(item: dict, protected_text: str) -> float:
     if zh_chars <= 0:
         return 0.0
     return zh_chars / source_words
+
+
+def layout_density_ratio(
+    inner: list[float],
+    protected_text: str,
+    *,
+    font_size_pt: float,
+    line_step_pt: float,
+) -> float:
+    if len(inner) != 4 or font_size_pt <= 0 or line_step_pt <= 0:
+        return 0.0
+    width = max(8.0, inner[2] - inner[0])
+    height = max(8.0, inner[3] - inner[1])
+    zh_chars = translated_zh_char_count(protected_text)
+    if zh_chars <= 0:
+        return 0.0
+    approx_char_width = max(font_size_pt * 0.92, 1.0)
+    chars_per_line = max(4.0, width / approx_char_width)
+    required_lines = max(1.0, zh_chars / chars_per_line)
+    occupied_height = required_lines * line_step_pt
+    return occupied_height / height
 
 
 def token_units(token: str, formula_lookup: dict[str, str]) -> float:

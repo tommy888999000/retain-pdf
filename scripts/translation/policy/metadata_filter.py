@@ -10,7 +10,7 @@ SHORT_CONNECTOR_SET = {
 }
 
 EDITORIAL_PREFIX_RE = re.compile(
-    r"^(received|revised|accepted|published|available online|online publication date|supporting information)\b",
+    r"^(received|revised|accepted|published|available online|online publication date|supporting information|editor|editors)\b",
     re.I,
 )
 COPYRIGHT_JOURNAL_RE = re.compile(

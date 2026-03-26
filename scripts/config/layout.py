@@ -1,4 +1,4 @@
-BODY_FONT_SIZE_FACTOR = 0.95
+BODY_FONT_SIZE_FACTOR = 0.99
 BODY_LEADING_FACTOR = 1.08
 INNER_BBOX_SHRINK_X = 0.035
 INNER_BBOX_SHRINK_Y = 0.04
@@ -34,4 +34,3 @@ def apply_layout_tuning(
         INNER_BBOX_DENSE_SHRINK_X = inner_bbox_dense_shrink_x
     if inner_bbox_dense_shrink_y is not None:
         INNER_BBOX_DENSE_SHRINK_Y = inner_bbox_dense_shrink_y
-

@@ -9,6 +9,7 @@ from pathlib import Path
 from common.prompt_loader import load_prompt
 from config import paths
 
+from .deepseek_client import extract_single_item_translation_text
 from .deepseek_client import normalize_base_url
 
 
@@ -90,7 +91,18 @@ def load_cached_translation(
     except Exception:
         return {}
     decision = str(payload.get("decision", "translate") or "translate").strip() or "translate"
-    translated_text = str(payload.get("translated_text", "") or "").strip()
+    raw_translated_text = str(payload.get("translated_text", "") or "").strip()
+    translated_text = extract_single_item_translation_text(raw_translated_text, str(item.get("item_id", "") or ""))
+    if translated_text != raw_translated_text:
+        healed_payload = {
+            "cache_key": cache_key,
+            "decision": decision,
+            "translated_text": translated_text,
+        }
+        temp_path = path.with_name(f"{path.name}.tmp-{os.getpid()}-{threading.get_ident()}")
+        with _CACHE_LOCK:
+            temp_path.write_text(json.dumps(healed_payload, ensure_ascii=False), encoding="utf-8")
+            temp_path.replace(path)
     return {
         "decision": decision,
         "translated_text": translated_text,
@@ -108,6 +120,7 @@ def store_cached_translation(
 ) -> None:
     decision = str(translation_result.get("decision", "translate") or "translate").strip() or "translate"
     translated_text = str(translation_result.get("translated_text", "") or "").strip()
+    translated_text = extract_single_item_translation_text(translated_text, str(item.get("item_id", "") or ""))
     if not translated_text and decision != "keep_origin":
         return
     cache_key = cache_key_for_item(

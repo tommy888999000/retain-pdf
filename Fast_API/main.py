@@ -245,7 +245,7 @@ async def upload_mineru_case(
     pdf_compress_dpi: int = Form(200),
     start_page: int = Form(0),
     end_page: int = Form(-1),
-    batch_size: int = Form(6),
+    batch_size: int = Form(1),
     workers: int = Form(0),
     output_root: str = Form("output"),
     translated_pdf_name: str = Form(""),

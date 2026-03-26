@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 import time
 from typing import Any
@@ -16,6 +17,26 @@ DEFAULT_API_KEY_ENV = "DEEPSEEK_API_KEY"
 DEFAULT_API_KEY_FILE = "deepseek.env"
 TRUST_ENV_PROXY_ENV = "PDF_TRANSLATOR_TRUST_ENV_PROXY"
 _THREAD_LOCAL = threading.local()
+_JSON_QUOTE_TRANSLATION = str.maketrans(
+    {
+        "“": '"',
+        "”": '"',
+        "„": '"',
+        "‟": '"',
+        "‘": '"',
+        "’": '"',
+        "‚": '"',
+        "‛": '"',
+        "：": ":",
+    }
+)
+_JSON_KEY_PREFIX_RE = re.compile(r'^\s*"translations"\s*:', re.DOTALL)
+_TAGGED_ITEM_BLOCK_RE = re.compile(
+    r"<<<ITEM\s+item_id=(?P<item_id>[^\s>]+)(?:\s+decision=(?P<decision>[A-Za-z_-]+))?\s*>>>\s*"
+    r"(?P<content>.*?)"
+    r"\s*<<<END>>>",
+    re.DOTALL,
+)
 
 
 def build_messages(batch: list[dict], domain_guidance: str = "", mode: str = "fast") -> list[dict[str, str]]:
@@ -24,6 +45,16 @@ def build_messages(batch: list[dict], domain_guidance: str = "", mode: str = "fa
         system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
     if mode == "sci":
         system_prompt = f"{system_prompt}\n\n{load_prompt('translation_sci_decision.txt')}"
+    else:
+        system_prompt = (
+            f"{system_prompt}\n\n"
+            "Return one tagged block per item and do not return JSON or markdown.\n"
+            "Use this exact format:\n"
+            "<<<ITEM item_id=ITEM_ID>>>\n"
+            "translated text\n"
+            "<<<END>>>\n"
+            "Output one block for every requested item_id."
+        )
     groups: dict[str, dict[str, Any]] = {}
     items_payload = []
     for item in batch:
@@ -112,11 +143,48 @@ def extract_json_text(content: str) -> str:
         if lines and lines[-1].startswith("```"):
             lines = lines[:-1]
         text = "\n".join(lines).strip()
+    text = _normalize_loose_json_text(text)
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end < start:
         raise ValueError("Model response does not contain a JSON object.")
     return text[start : end + 1]
+
+
+def extract_single_item_translation_text(content: str, item_id: str) -> str:
+    text = (content or "").strip()
+    if not text:
+        return ""
+
+    tagged_matches = list(_TAGGED_ITEM_BLOCK_RE.finditer(text))
+    if tagged_matches:
+        for match in tagged_matches:
+            if (match.group("item_id") or "").strip() == item_id:
+                return (match.group("content") or "").strip()
+        if len(tagged_matches) == 1:
+            return (tagged_matches[0].group("content") or "").strip()
+
+    try:
+        payload = json.loads(extract_json_text(text))
+    except Exception:
+        return text
+
+    translations = payload.get("translations", [])
+    if not isinstance(translations, list):
+        return text
+    for item in translations:
+        if str(item.get("item_id", "") or "").strip() == item_id:
+            return str(item.get("translated_text", "") or "").strip()
+    if len(translations) == 1:
+        return str(translations[0].get("translated_text", "") or "").strip()
+    return text
+
+
+def _normalize_loose_json_text(text: str) -> str:
+    normalized = (text or "").strip().translate(_JSON_QUOTE_TRANSLATION).strip()
+    if _JSON_KEY_PREFIX_RE.match(normalized):
+        normalized = "{" + normalized + "}"
+    return normalized
 
 
 def normalize_base_url(base_url: str) -> str:

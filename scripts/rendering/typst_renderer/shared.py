@@ -71,7 +71,20 @@ def default_typst_temp_root(output_pdf_path: Path) -> Path:
     for parent in output_pdf_path.parents:
         if parent.name in {TRANSLATED_DIR_NAME, LEGACY_TRANSLATED_DIR_NAME} and parent.parent != parent:
             return parent.parent / TYPST_DIR_NAME
-    return output_pdf_path.parent / TYPST_DIR_NAME
+
+    # Snap-installed Typst cannot reliably access inputs under /tmp. When the
+    # output path is outside the structured job tree, keep temporary Typst
+    # artifacts under the project output root instead of beside the target PDF.
+    try:
+        resolved_output = output_pdf_path.resolve(strict=False)
+    except Exception:
+        resolved_output = output_pdf_path
+    try:
+        resolved_output.relative_to(paths.ROOT_DIR)
+        return output_pdf_path.parent / TYPST_DIR_NAME
+    except Exception:
+        stem = output_pdf_path.stem.strip() or "adhoc"
+        return paths.OUTPUT_DIR / TYPST_DIR_NAME / "_adhoc" / stem
 
 
 def prepare_typst_work_dir(base_dir: Path, *parts: str) -> Path:

@@ -73,7 +73,7 @@ class LayoutTuningParams(BaseModel):
 class TranslationRenderParams(BaseModel):
     start_page: int = Field(default=0, ge=0, description="Zero-based start page index.")
     end_page: int = Field(default=-1, description="Zero-based end page index; -1 means the last page.")
-    batch_size: int = Field(default=6, ge=1, description="Number of text items per translation batch.")
+    batch_size: int = Field(default=1, ge=1, description="Number of text items per translation batch.")
     workers: int = Field(default=0, ge=0, description="Concurrent translation requests. 0 means auto: DeepSeek=50, local-compatible APIs=4.")
     mode: Literal["fast", "precise", "sci"] = Field(default="sci", description="Translation mode.")
     skip_title_translation: bool = Field(default=False, description="Skip title blocks.")

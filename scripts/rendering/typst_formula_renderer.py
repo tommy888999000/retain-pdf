@@ -6,6 +6,7 @@ from pathlib import Path
 from PIL import Image
 
 from config import paths
+from rendering.formula_normalizer import normalize_formula_for_latex_math
 
 
 FORMULA_CACHE_DIR = paths.OUTPUT_DIR / "formula_cache"
@@ -119,7 +120,8 @@ def _collapse_token_spacing(text: str) -> str:
 
 
 def convert_latexish_to_typst(expr: str) -> str:
-    text = _collapse_token_spacing(expr.strip().rstrip(","))
+    text = normalize_formula_for_latex_math(expr.strip().rstrip(","))
+    text = _collapse_token_spacing(text)
     text = text.replace(r"\big", "")
     text = text.replace(r"\left", "")
     text = text.replace(r"\right", "")

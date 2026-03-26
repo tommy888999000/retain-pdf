@@ -23,6 +23,20 @@ STRUCTURAL_LATEX_COMMANDS = {
     "binom",
 }
 
+STYLE_WRAPPER_MACROS = r"(?:bf|rm|it|sf|tt|pmb|mathbf|mathrm|mathit|mathsf|mathtt)"
+
+
+def _unwrap_style_wrappers(expr: str) -> str:
+    group_prefixed_re = re.compile(r"\{\s*\\" + STYLE_WRAPPER_MACROS + r"\s+([^{}]+?)\s*\}")
+    direct_group_re = re.compile(r"\\" + STYLE_WRAPPER_MACROS + r"\s*\{\s*([^{}]+?)\s*\}")
+
+    prev = None
+    while expr != prev:
+        prev = expr
+        expr = group_prefixed_re.sub(lambda m: m.group(1).strip(), expr)
+        expr = direct_group_re.sub(lambda m: m.group(1).strip(), expr)
+    return expr
+
 
 def normalize_formula_for_latex_math(formula_text: str) -> str:
     expr = " ".join(formula_text.strip().split())
@@ -70,25 +84,8 @@ def normalize_formula_for_latex_math(formula_text: str) -> str:
     expr = re.sub(r"(?<=\d)\s*\\dot\b(?=\s*$)", ".", expr)
     expr = re.sub(r"(?<=\d)\s*\\dot\b(?=\s*[\)\],;])", ".", expr)
 
-    style_group_re = re.compile(r"\{\s*\\(?:bf|rm|it|tt|sf)\s*([^{}]*)\}")
-    prev = None
-    while expr != prev:
-        prev = expr
-        expr = style_group_re.sub(lambda m: m.group(1).strip(), expr)
-
-    expr = re.sub(r"\{\s*\\(?:bf|rm|it|tt|sf)\s*\}", "", expr)
-
-    modern_style_group_re = re.compile(r"\{\s*\\(?:mathbf|mathrm|mathit|mathsf|mathtt)\s+([^{}]+?)\s*\}")
-    prev = None
-    while expr != prev:
-        prev = expr
-        expr = modern_style_group_re.sub(lambda m: m.group(1).strip(), expr)
-
-    direct_modern_style_re = re.compile(r"\\(?:mathbf|mathrm|mathit|mathsf|mathtt)\s*\{\s*([^{}]+?)\s*\}")
-    prev = None
-    while expr != prev:
-        prev = expr
-        expr = direct_modern_style_re.sub(lambda m: m.group(1).strip(), expr)
+    expr = _unwrap_style_wrappers(expr)
+    expr = re.sub(r"\{\s*\\(?:bf|rm|it|tt|sf|pmb)\s*\}", "", expr)
 
     expr = re.sub(r"\\textcircled\s*\{\s*\\times\s*\}", r"\\otimes", expr)
     expr = re.sub(

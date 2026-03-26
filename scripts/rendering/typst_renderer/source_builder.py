@@ -81,7 +81,7 @@ def build_typst_book_overlay_source(
     ]
 
     for page_index, (page_width, page_height, translated_items) in enumerate(page_specs):
-        render_blocks = build_render_blocks(translated_items)
+        render_blocks = build_render_blocks(translated_items, page_width=page_width, page_height=page_height)
         lines.append(f"#set page(width: {page_width}pt, height: {page_height}pt, margin: 0pt)")
         for index, block in enumerate(render_blocks):
             lines.append(_build_typst_block(f"p{page_index}_{block.block_id}_{index}", block))
@@ -106,7 +106,7 @@ def build_typst_book_background_source(
     ]
 
     for page_index, (source_page_idx, page_width, page_height, translated_items) in enumerate(page_specs):
-        render_blocks = build_render_blocks(translated_items)
+        render_blocks = build_render_blocks(translated_items, page_width=page_width, page_height=page_height)
         lines.append(f"#set page(width: {page_width}pt, height: {page_height}pt, margin: 0pt)")
         lines.append(
             f'#place(top + left, dx: 0pt, dy: 0pt, image("{source_rel}", page: {source_page_idx + 1}, width: {page_width}pt))'
