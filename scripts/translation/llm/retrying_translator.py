@@ -7,13 +7,21 @@ from .cache import store_cached_batch
 from .deepseek_client import build_messages
 from .deepseek_client import build_single_item_fallback_messages
 from .deepseek_client import extract_json_text
+from .deepseek_client import extract_single_item_translation_text
 from .deepseek_client import request_chat_content
+from translation.policy.metadata_filter import should_skip_metadata_fragment
 
 
 PLACEHOLDER_RE = re.compile(r"\[\[FORMULA_\d+]]")
 EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
 KEEP_ORIGIN_LABEL = "keep_origin"
 SHORT_FRAGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._/-]{0,7}$")
+TAGGED_ITEM_RE = re.compile(
+    r"<<<ITEM\s+item_id=(?P<item_id>[^\s>]+)(?:\s+decision=(?P<decision>[A-Za-z_-]+))?\s*>>>\s*"
+    r"(?P<content>.*?)"
+    r"\s*<<<END>>>",
+    re.DOTALL,
+)
 
 
 class SuspiciousKeepOriginError(ValueError):
@@ -40,9 +48,18 @@ def _result_entry(decision: str, translated_text: str) -> dict[str, str]:
 
 
 def _parse_translation_payload(content: str) -> dict[str, dict[str, str]]:
+    result: dict[str, dict[str, str]] = {}
+    for match in TAGGED_ITEM_RE.finditer(content or ""):
+        item_id = (match.group("item_id") or "").strip()
+        decision = match.group("decision") or "translate"
+        translated_text = (match.group("content") or "").strip()
+        if item_id:
+            result[item_id] = _result_entry(decision, translated_text)
+    if result:
+        return result
+
     payload = json.loads(extract_json_text(content))
     translations = payload.get("translations", [])
-    result: dict[str, dict[str, str]] = {}
     for item in translations:
         item_id = item.get("item_id")
         translated_text = item.get("translated_text", "")
@@ -118,6 +135,8 @@ def _should_force_translate_body_text(item: dict) -> bool:
     source_text = _unit_source_text(item).strip()
     if not source_text:
         return False
+    if should_skip_metadata_fragment(item):
+        return False
     if _looks_like_garbled_fragment(source_text):
         return False
     if _looks_like_short_fragment(source_text):
@@ -189,7 +208,8 @@ def _translate_single_item_plain_text(
         timeout=120,
         request_label=request_label,
     )
-    return {item["item_id"]: _result_entry("translate", content.strip())}
+    translated_text = extract_single_item_translation_text(content, item["item_id"])
+    return {item["item_id"]: _result_entry("translate", translated_text)}
 
 
 def _translate_single_item_with_decision(
@@ -207,7 +227,7 @@ def _translate_single_item_with_decision(
         model=model,
         base_url=base_url,
         temperature=0.0,
-        response_format={"type": "json_object"},
+        response_format=None,
         timeout=120,
         request_label=request_label,
     )
@@ -231,7 +251,7 @@ def _translate_batch_once(
         model=model,
         base_url=base_url,
         temperature=0.2,
-        response_format={"type": "json_object"},
+        response_format=None,
         timeout=120,
         request_label=request_label,
     )

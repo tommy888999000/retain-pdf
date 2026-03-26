@@ -10,6 +10,7 @@ from pipeline.book_translation_policies import apply_page_policies
 from pipeline.book_translation_policies import build_page_summaries
 from pipeline.book_translation_policies import finalize_page_payloads
 from pipeline.book_translation_policies import review_and_apply_continuations
+from translation.postprocess import reconstruct_garbled_page_payloads
 from translation.orchestration.document_orchestrator import finalize_orchestration_metadata_by_page
 from translation.policy import TranslationPolicyConfig
 from translation.payload import load_translations
@@ -94,6 +95,25 @@ def translate_book_with_global_continuations(
         mode=mode,
     )
     print(f"book: translation batches in {time.perf_counter() - translate_started:.2f}s", flush=True)
+
+    reconstruct_started = time.perf_counter()
+    summary = reconstruct_garbled_page_payloads(
+        page_payloads,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        workers=workers,
+    )
+    reconstructed_items = int(summary["garbled_reconstructed"])
+    garbled_candidates = int(summary["garbled_candidates"])
+    dirty_pages = {int(page_idx) for page_idx in summary.get("dirty_pages", [])}
+    if dirty_pages:
+        save_pages(page_payloads, translation_paths, dirty_pages)
+    print(
+        f"book: garbled reconstruction candidates={garbled_candidates} reconstructed={reconstructed_items} "
+        f"in {time.perf_counter() - reconstruct_started:.2f}s",
+        flush=True,
+    )
 
     translated_pages_map = {page_idx: load_translations(translation_paths[page_idx]) for page_idx in sorted(page_payloads)}
     summaries = build_page_summaries(

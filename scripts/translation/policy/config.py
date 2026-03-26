@@ -67,7 +67,7 @@ def should_apply_narrow_body_noise_skip(mode: str) -> bool:
 
 
 def should_apply_metadata_fragment_skip(mode: str) -> bool:
-    return False
+    return mode in {"fast", "precise", "sci"}
 
 
 def should_apply_candidate_continuation_review() -> bool:

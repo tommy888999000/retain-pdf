@@ -1,5 +1,7 @@
 Translate each source_text into publication-style Simplified Chinese suitable for scientific articles while preserving meaning, formulas, and technical terms.
 Prefer natural Chinese scientific phrasing over rigid word-for-word English order.
+Prefer the shortest faithful wording that preserves meaning and technical precision.
+Keep the translated sentence length close to the source when possible; do not add redundant explanation.
 Preserve established English abbreviations, symbols, and model names when that is the conventional scientific form.
 Do not translate placeholders or code.
 If an item is only a short metadata fragment, author / affiliation text, editorial date, copyright / journal line, or a standalone connector such as "and", keep it unchanged or minimally normalized.

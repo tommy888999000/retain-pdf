@@ -7,10 +7,17 @@ from .formula_protection import protect_inline_formulas_in_segments
 from .formula_protection import re_protect_restored_formulas
 
 
+def _default_translation_flags(block_type: str) -> tuple[str, bool, str]:
+    if block_type == "image_body":
+        return "skip_image_body", False, "skip_image_body"
+    return "", True, ""
+
+
 def export_translation_template(items: list[TextItem], output_path: Path, page_idx: int) -> None:
     payload = []
     for item in items:
         protected_source_text, formula_map = protect_inline_formulas_in_segments(item.segments)
+        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type)
         payload.append(
             {
                 "item_id": item.item_id,
@@ -30,9 +37,9 @@ def export_translation_template(items: list[TextItem], output_path: Path, page_i
                 "protected_source_text": protected_source_text,
                 "mixed_original_protected_source_text": protected_source_text,
                 "formula_map": formula_map,
-                "classification_label": "",
-                "should_translate": True,
-                "skip_reason": "",
+                "classification_label": classification_label,
+                "should_translate": should_translate,
+                "skip_reason": skip_reason,
                 "mixed_literal_action": "",
                 "mixed_literal_prefix": "",
                 "translation_unit_id": item.item_id,
@@ -84,6 +91,7 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
         item = item_map.get(record.get("item_id"))
         if not item:
             continue
+        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type)
         if (
             "protected_source_text" not in record
             or "formula_map" not in record
@@ -96,8 +104,8 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
             record["metadata"] = item.metadata
             record["protected_source_text"] = protected_source_text
             record["formula_map"] = formula_map
-            record.setdefault("classification_label", "")
-            record.setdefault("should_translate", True)
+            record.setdefault("classification_label", classification_label)
+            record.setdefault("should_translate", should_translate)
             record.setdefault("protected_translated_text", "")
             record.setdefault("continuation_group", "")
             record.setdefault("continuation_prev_text", "")
@@ -108,7 +116,7 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
             record.setdefault("group_translated_text", "")
             changed = True
         if "classification_label" not in record:
-            record["classification_label"] = ""
+            record["classification_label"] = classification_label
             changed = True
         if "mixed_original_protected_source_text" not in record:
             record["mixed_original_protected_source_text"] = record.get("protected_source_text", "")
@@ -141,11 +149,39 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
             record["metadata"] = item.metadata
             changed = True
         if "should_translate" not in record:
-            record["should_translate"] = True
+            record["should_translate"] = should_translate
             changed = True
         if "skip_reason" not in record:
-            record["skip_reason"] = ""
+            record["skip_reason"] = skip_reason
             changed = True
+        if item.block_type == "image_body":
+            if record.get("classification_label") != classification_label:
+                record["classification_label"] = classification_label
+                changed = True
+            if record.get("should_translate") is not should_translate:
+                record["should_translate"] = should_translate
+                changed = True
+            if record.get("skip_reason") != skip_reason:
+                record["skip_reason"] = skip_reason
+                changed = True
+            if any(
+                record.get(field)
+                for field in (
+                    "translation_unit_protected_translated_text",
+                    "translation_unit_translated_text",
+                    "protected_translated_text",
+                    "translated_text",
+                    "group_protected_translated_text",
+                    "group_translated_text",
+                )
+            ):
+                record["translation_unit_protected_translated_text"] = ""
+                record["translation_unit_translated_text"] = ""
+                record["protected_translated_text"] = ""
+                record["translated_text"] = ""
+                record["group_protected_translated_text"] = ""
+                record["group_translated_text"] = ""
+                changed = True
         if "translation_unit_id" not in record:
             record["translation_unit_id"] = record.get("item_id", item.item_id)
             changed = True

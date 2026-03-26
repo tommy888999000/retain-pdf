@@ -32,6 +32,14 @@ NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.04
 MIN_TEXT_LINE_PITCH_PT = 10.8
 APPROX_TEXT_CHAR_WIDTH_PT = 5.2
 LOCAL_TEXTUAL_BLOCK_TYPES = {"text", "title", "image_caption", "table_caption", "table_footnote"}
+TEXT_HEIGHT_PADDING_RATIO = 0.22
+TEXT_HEIGHT_PADDING_MAX_PT = 2.2
+VISUAL_LINE_COUNT_MAX = 24
+LINE_COUNT_PREDICT_TRIGGER_CHARS = 48
+LINE_COUNT_GROW_THRESHOLD = 1.12
+FORMULA_CHARS_PER_LINE_PENALTY = 0.82
+HIGH_DENSITY_LEADING_RATIO = 0.9
+FORMULA_LEADING_RATIO = 0.92
 
 
 def line_height(line: dict) -> float:
@@ -104,27 +112,64 @@ def bbox_height(item: dict) -> float:
     return max(0.0, bbox[3] - bbox[1]) if len(bbox) == 4 else 0.0
 
 
+def effective_text_height(item: dict) -> float:
+    line_boxes = []
+    for line in item.get("lines", []):
+        bbox = line.get("bbox", [])
+        if len(bbox) != 4:
+            continue
+        line_boxes.append(bbox)
+    if not line_boxes:
+        return bbox_height(item)
+
+    top = min(box[1] for box in line_boxes)
+    bottom = max(box[3] for box in line_boxes)
+    raw_height = max(0.0, bottom - top)
+    median_height = median_line_height(item)
+    if raw_height <= 0:
+        return bbox_height(item)
+    padding = min(TEXT_HEIGHT_PADDING_MAX_PT, median_height * TEXT_HEIGHT_PADDING_RATIO) if median_height > 0 else 0.0
+    return min(bbox_height(item), raw_height + padding)
+
+
+def _predicted_wrapped_line_count(item: dict, *, width: float, text_len: int) -> int:
+    if width <= 0 or text_len < LINE_COUNT_PREDICT_TRIGGER_CHARS:
+        return 0
+    observed_chars = plain_text_chars_per_line(item)
+    approx_chars_per_line = observed_chars or clamp(width / APPROX_TEXT_CHAR_WIDTH_PT, 10.0, 88.0)
+    if formula_ratio(item) > 0:
+        approx_chars_per_line *= FORMULA_CHARS_PER_LINE_PENALTY
+    structure_role = str((item.get("metadata", {}) or {}).get("structure_role", "") or "")
+    if structure_role in {"body", "example_line"}:
+        approx_chars_per_line *= 0.96
+    effective_chars_per_line = max(8.0, approx_chars_per_line * 1.02)
+    return max(1, ceil(text_len / effective_chars_per_line))
+
+
 def visual_line_count(item: dict) -> int:
     observed = len(item.get("lines", []))
-    if observed >= 2:
-        return observed
-
     width = bbox_width(item)
     block_height = bbox_height(item)
     text_len = len(re.sub(r"\s+", "", item.get("source_text", "")))
-    if observed == 1 and width > 0 and block_height > 0 and text_len >= 80:
-        approx_chars_per_line = max(14.0, min(80.0, width / APPROX_TEXT_CHAR_WIDTH_PT))
-        inferred_by_text = ceil(text_len / (approx_chars_per_line * 1.35))
-        max_lines_by_height = max(1, int(block_height / MIN_TEXT_LINE_PITCH_PT))
-        if inferred_by_text >= 2 and max_lines_by_height >= 2:
-            inferred = min(max_lines_by_height, inferred_by_text)
-            return max(2, min(24, inferred))
+    observed = max(1, observed)
+    predicted_by_text = _predicted_wrapped_line_count(item, width=width, text_len=text_len)
+    max_lines_by_height = max(1, int(block_height / MIN_TEXT_LINE_PITCH_PT)) if block_height > 0 else observed
+    predicted_lower_bound = min(max_lines_by_height, predicted_by_text) if predicted_by_text > 0 else observed
 
-    return max(1, observed)
+    if predicted_lower_bound <= observed:
+        return min(VISUAL_LINE_COUNT_MAX, observed)
+
+    growth_ratio = predicted_lower_bound / max(1, observed)
+    if observed == 1:
+        return min(VISUAL_LINE_COUNT_MAX, max(observed, predicted_lower_bound))
+
+    if growth_ratio >= LINE_COUNT_GROW_THRESHOLD:
+        return min(VISUAL_LINE_COUNT_MAX, predicted_lower_bound)
+    return min(VISUAL_LINE_COUNT_MAX, observed)
 
 
 def local_line_pitch(item: dict) -> float:
-    block_height = bbox_height(item)
+    block_height = effective_text_height(item)
     lines = visual_line_count(item)
     if block_height <= 0 or lines <= 0:
         return 0.0
@@ -321,6 +366,8 @@ def estimate_font_size_pt(
 
 def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float) -> float:
     block_pitch = local_line_pitch(item) or median_line_pitch(item)
+    density_ratio_x = occupied_ratio_x(item)
+    formula_weight = formula_ratio(item)
     if item.get("_is_body_text_candidate", False):
         pitch = block_pitch or page_line_pitch
         if pitch > 0 and font_size_pt > 0:
@@ -330,13 +377,17 @@ def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float)
             base = mixed * layout.BODY_LEADING_FACTOR
         else:
             base = 0.66 * layout.BODY_LEADING_FACTOR
+        if density_ratio_x >= 0.86:
+            base = max(base, BODY_LEADING_MIN / HIGH_DENSITY_LEADING_RATIO)
+        if formula_weight >= 0.08:
+            base = max(base, BODY_LEADING_MIN / FORMULA_LEADING_RATIO)
         return normalize_leading_em_for_font_size(
             font_size_pt,
             base,
             reference_font_size_pt=fonts.DEFAULT_FONT_SIZE,
             min_leading_em=BODY_LEADING_MIN,
             max_leading_em=BODY_LEADING_MAX,
-            strength=BODY_LEADING_SIZE_ADJUST,
+            strength=BODY_LEADING_SIZE_ADJUST * (0.55 if density_ratio_x >= 0.86 or formula_weight >= 0.08 else 1.0),
             floor_min_leading_em=BODY_LEADING_FLOOR_MIN,
         )
     if block_pitch > 0 and font_size_pt > 0:
@@ -345,12 +396,16 @@ def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float)
         base = mixed * layout.BODY_LEADING_FACTOR
     else:
         base = DEFAULT_LEADING_EM * layout.BODY_LEADING_FACTOR
+    if density_ratio_x >= 0.9:
+        base = max(base, NON_BODY_LEADING_MIN / HIGH_DENSITY_LEADING_RATIO)
+    if formula_weight >= 0.12:
+        base = max(base, NON_BODY_LEADING_MIN / FORMULA_LEADING_RATIO)
     return normalize_leading_em_for_font_size(
         font_size_pt,
         base,
         reference_font_size_pt=fonts.DEFAULT_FONT_SIZE,
         min_leading_em=NON_BODY_LEADING_MIN,
         max_leading_em=NON_BODY_LEADING_MAX,
-        strength=NON_BODY_LEADING_SIZE_ADJUST,
+        strength=NON_BODY_LEADING_SIZE_ADJUST * (0.6 if density_ratio_x >= 0.9 or formula_weight >= 0.12 else 1.0),
         floor_min_leading_em=NON_BODY_LEADING_FLOOR_MIN,
     )

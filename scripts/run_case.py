@@ -29,8 +29,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-pdf", type=str, default="", help="Explicit source PDF path.")
     parser.add_argument("--start-page", type=int, default=0, help="Zero-based start page index. Default is the first page.")
     parser.add_argument("--end-page", type=int, default=-1, help="Zero-based end page index, inclusive. Default is the last page.")
-    parser.add_argument("--batch-size", type=int, default=6, help="Number of text items per API call.")
-    parser.add_argument("--workers", type=int, default=4, help="Concurrent translation requests.")
+    parser.add_argument("--batch-size", type=int, default=1, help="Number of text items per API call.")
+    parser.add_argument("--workers", type=int, default=50, help="Concurrent translation requests.")
     parser.add_argument(
         "--mode",
         type=str,
@@ -208,8 +208,8 @@ def main() -> None:
     print(f"output pdf: {result['output_pdf_path']}")
     print(f"pages processed: {result['pages_processed']}")
     print(f"translated items: {result['translated_items_total']}")
-    print(f"translate+render time: {result['translate_elapsed']:.2f}s")
-    print(f"save time: {result['save_elapsed']:.2f}s")
+    print(f"translation time: {result['translate_elapsed']:.2f}s")
+    print(f"render+save time: {result['save_elapsed']:.2f}s")
     print(f"total time: {result['total_elapsed']:.2f}s")
 
 

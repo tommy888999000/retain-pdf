@@ -93,7 +93,15 @@ def apply_translation_policies(
         "mixed_translate_all": 0,
         "mixed_translate_tail": 0,
     }
-    metadata_fragment_skipped = 0
+    metadata_fragment_skipped = (
+        payload_ops.apply_metadata_fragment_skip(
+            payload,
+            page_idx=page_idx,
+            max_page_idx=policy_config.metadata_fragment_max_page_idx,
+        )
+        if policy_config.enable_metadata_fragment_skip
+        else 0
+    )
     narrow_body_skipped = 0
     skip_summary = {
         "title_skipped": 0,

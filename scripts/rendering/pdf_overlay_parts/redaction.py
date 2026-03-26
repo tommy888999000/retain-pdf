@@ -68,10 +68,14 @@ def redact_translated_text_areas(
     cover_rects: list[fitz.Rect] = []
     for rect, item, _translated_text in valid_items:
         if fill_background is None:
+            removable_text = item_has_removable_text(page, item, rect)
+            if removable_text:
+                redactions.append((rect, None))
+                continue
             if item_should_use_cover_only(rect, drawing_rects):
                 cover_rects.append(rect)
                 continue
-            fill = None if item_has_removable_text(page, item, rect) else (1, 1, 1)
+            fill = (1, 1, 1)
         else:
             fill = (1, 1, 1) if fill_background else None
         redactions.append((rect, fill))

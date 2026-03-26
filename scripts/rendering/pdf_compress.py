@@ -7,8 +7,8 @@ from pathlib import Path
 import fitz
 
 
-VECTOR_SKIP_PAGE_DRAWINGS_THRESHOLD = 12
-VECTOR_SKIP_TOTAL_DRAWINGS_THRESHOLD = 20
+VECTOR_SKIP_PAGE_DRAWINGS_THRESHOLD = 100
+VECTOR_SKIP_TOTAL_DRAWINGS_THRESHOLD = 300
 
 
 def _page_drawing_count(page: fitz.Page) -> int:
