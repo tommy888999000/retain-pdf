@@ -45,13 +45,14 @@ def _build_translation_system_prompt(
     domain_guidance: str = "",
     mode: str = "fast",
     response_style: str = "tagged",
+    include_sci_decision: bool = True,
 ) -> str:
     system_prompt = load_prompt("translation_system.txt")
     if response_style != "json":
         system_prompt = system_prompt.replace(_JSON_ONLY_INSTRUCTION, "").strip()
     if domain_guidance.strip():
         system_prompt = f"{system_prompt}\n\nDocument-specific translation guidance:\n{domain_guidance.strip()}"
-    if mode == "sci":
+    if mode == "sci" and include_sci_decision:
         system_prompt = f"{system_prompt}\n\n{load_prompt('translation_sci_decision.txt')}"
     return system_prompt
 
@@ -111,8 +112,13 @@ def build_messages(batch: list[dict], domain_guidance: str = "", mode: str = "fa
     ]
 
 
-def build_single_item_fallback_messages(item: dict, domain_guidance: str = "", mode: str = "fast") -> list[dict[str, str]]:
-    if mode == "sci":
+def build_single_item_fallback_messages(
+    item: dict,
+    domain_guidance: str = "",
+    mode: str = "fast",
+    structured_decision: bool = False,
+) -> list[dict[str, str]]:
+    if mode == "sci" and structured_decision:
         system_prompt = _build_translation_system_prompt(
             domain_guidance=domain_guidance,
             mode=mode,
@@ -139,6 +145,7 @@ def build_single_item_fallback_messages(item: dict, domain_guidance: str = "", m
         domain_guidance=domain_guidance,
         mode=mode,
         response_style="plain_text",
+        include_sci_decision=False,
     )
     fallback_system = (
         f"{system_prompt}\n"
@@ -146,11 +153,20 @@ def build_single_item_fallback_messages(item: dict, domain_guidance: str = "", m
         "Return only the translated_text as plain text.\n"
         "Do not return JSON, markdown, code fences, labels, or explanations."
     )
-    user_prompt = (
-        f"{load_prompt('translation_task.txt')}\n\n"
-        f"item_id: {item['item_id']}\n"
-        f"source_text:\n{item['protected_source_text']}"
-    )
+    user_payload: dict[str, Any] = {
+        "task": load_prompt("translation_task.txt"),
+        "item": {
+            "item_id": item["item_id"],
+            "source_text": item["protected_source_text"],
+        },
+    }
+    if item.get("continuation_prev_text"):
+        user_payload["item"]["context_before"] = item["continuation_prev_text"]
+    if item.get("continuation_next_text"):
+        user_payload["item"]["context_after"] = item["continuation_next_text"]
+    if item.get("continuation_group"):
+        user_payload["item"]["continuation_group"] = item["continuation_group"]
+    user_prompt = json.dumps(user_payload, ensure_ascii=False)
     return [
         {"role": "system", "content": fallback_system},
         {"role": "user", "content": user_prompt},

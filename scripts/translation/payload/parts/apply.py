@@ -63,6 +63,8 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
             item["translation_unit_translated_text"] = restored
             item["group_protected_translated_text"] = protected_translated_text
             item["group_translated_text"] = restored
+            item["protected_translated_text"] = protected_translated_text
+            item["translated_text"] = restored
 
     for item in payload:
         item_id = item.get("item_id")

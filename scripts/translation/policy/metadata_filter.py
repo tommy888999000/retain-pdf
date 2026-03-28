@@ -31,6 +31,10 @@ LETTER_RE = re.compile(r"[A-Za-z]")
 SHORT_ALPHA_FRAGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._/-]{0,7}$")
 SECTION_MARKER_START_RE = re.compile(r"^(?:\(|\[)?(?:\d+(?:\.\d+)*|[A-Za-z])(?:\)|\]|\.)\s+|^[•\-*]\s+")
 NAME_LIKE_TOKEN_RE = re.compile(r"\b(?:[A-Z]\.\s*)?[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}){0,3}\b")
+AUTHOR_LIST_NAME_RE = re.compile(
+    r"\b[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]*\d*"
+    r"(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]*\d*){1,3}\b"
+)
 ADDRESS_WORD_RE = re.compile(
     r"\b(platz|street|st\.|road|rd\.|avenue|ave\.|campus|building|room|suite|postal|postfach|germany|france|spain|italy|uk|u\.k\.|usa|u\.s\.a\.|denmark|sweden|norway|finland|japan|korea)\b",
     re.I,
@@ -73,11 +77,15 @@ def _looks_like_editorial_metadata(text: str) -> bool:
 
 
 def _looks_like_author_or_affiliation(text: str) -> bool:
+    sanitized = re.sub(r"\\[A-Za-z]+(?:\{[^}]*\})*", " ", text)
     upper_name_tokens = len(ALL_CAPS_TOKEN_RE.findall(text))
     initial_names = len(INITIAL_NAME_RE.findall(text))
     author_segments = _author_like_segments(text)
+    author_list_names = AUTHOR_LIST_NAME_RE.findall(sanitized)
     name_like_tokens = sum(1 for segment in author_segments if segment)
     comma_count = _comma_count(text)
+    if ("·" in sanitized or ";" in sanitized or comma_count >= 2) and len(author_list_names) >= 3 and not PROSE_CUE_RE.search(sanitized):
+        return True
     if AUTHOR_MARKER_RE.search(text) and (_comma_count(text) >= 1 or initial_names >= 1 or upper_name_tokens >= 2):
         return True
     if PERSON_NAME_RE.fullmatch(text.strip()) and len(text) <= 80:
@@ -170,6 +178,21 @@ def should_skip_metadata_fragment(item: dict) -> bool:
     if _word_count(text) > MAX_METADATA_FRAGMENT_WORDS:
         return False
 
+    if looks_like_nontranslatable_metadata(item):
+        return True
+
+    if _line_count(item) <= 2 and len(text) <= 64 and text.strip().lower() == "supporting information":
+        return True
+    return False
+
+
+def looks_like_nontranslatable_metadata(item: dict) -> bool:
+    if item.get("block_type") not in {"text", "title", "list"}:
+        return False
+    text = _normalized_text(item)
+    if not text:
+        return False
+
     if len(text) <= 16 and _looks_like_standalone_connector(text):
         return True
     if _looks_like_editorial_metadata(text):
@@ -199,5 +222,6 @@ def find_metadata_fragment_item_ids(payload: list[dict]) -> set[str]:
 __all__ = [
     "find_metadata_fragment_item_ids",
     "looks_like_url_fragment",
+    "looks_like_nontranslatable_metadata",
     "should_skip_metadata_fragment",
 ]

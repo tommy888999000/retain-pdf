@@ -89,14 +89,14 @@ def translate_items_to_path(
         save_translations(translation_path, payload)
         print(f"{label}: classified {classified_items} page items")
 
-    if policy_config.enable_after_last_title_cutoff:
-        if skip_summary["title_skipped"] or skip_summary["tail_skipped"]:
+    if policy_config.enable_reference_tail_skip:
+        if skip_summary["title_skipped"] or skip_summary["reference_tail_skipped"]:
             finalize_payload_orchestration_metadata(payload)
             save_translations(translation_path, payload)
             if skip_summary["title_skipped"]:
                 print(f"{label}: skipped {skip_summary['title_skipped']} title items")
-            if skip_summary["tail_skipped"]:
-                print(f"{label}: skipped {skip_summary['tail_skipped']} items after the last title cutoff")
+            if skip_summary["reference_tail_skipped"]:
+                print(f"{label}: skipped {skip_summary['reference_tail_skipped']} items in the reference tail")
     elif policy_config.enable_title_skip:
         if skip_summary["title_skipped"]:
             finalize_payload_orchestration_metadata(payload)
@@ -114,9 +114,18 @@ def translate_items_to_path(
         finalize_payload_orchestration_metadata(payload)
         save_translations(translation_path, payload)
         print(f"{label}: skipped {skip_summary['reference_zone_skipped']} reference-zone items")
+    if any(skip_summary.get(key) for key in ("mixed_keep_all", "mixed_translate_all", "mixed_translate_tail")):
+        finalize_payload_orchestration_metadata(payload)
+        save_translations(translation_path, payload)
+        print(
+            f"{label}: mixed literal split keep_all={skip_summary['mixed_keep_all']} "
+            f"translate_all={skip_summary['mixed_translate_all']} "
+            f"translate_tail={skip_summary['mixed_translate_tail']}",
+            flush=True,
+        )
 
     pending = pending_translation_items(payload)
-    effective_batch_size = 1 if mode != "sci" else max(1, batch_size)
+    effective_batch_size = 1
     batches = chunked(pending, effective_batch_size)
     total_batches = len(batches)
     print(

@@ -6,6 +6,7 @@ from translation.policy.config import build_book_translation_policy_config
 from translation.policy.config import build_translation_policy_config
 from translation.policy.config import extract_ocr_preview_text
 from translation.policy.config import should_apply_after_last_title_cutoff
+from translation.policy.config import should_apply_reference_tail_skip
 from translation.policy.config import should_apply_candidate_continuation_review
 from translation.policy.config import should_apply_metadata_fragment_skip
 from translation.policy.config import should_apply_narrow_body_noise_skip
@@ -27,6 +28,7 @@ __all__ = [
     "find_narrow_body_noise_item_ids",
     "resolve_reference_cutoff",
     "should_apply_after_last_title_cutoff",
+    "should_apply_reference_tail_skip",
     "should_apply_candidate_continuation_review",
     "should_apply_metadata_fragment_skip",
     "should_apply_narrow_body_noise_skip",

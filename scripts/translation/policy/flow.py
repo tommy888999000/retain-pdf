@@ -85,11 +85,14 @@ def apply_translation_policies(
         else 0
     )
     shared_literal_summary = payload_ops.apply_shared_literal_block_policy(payload)
-    mixed_literal_summary = {
-        "mixed_keep_all": 0,
-        "mixed_translate_all": 0,
-        "mixed_translate_tail": 0,
-    }
+    mixed_literal_summary = payload_ops.apply_mixed_literal_split_policy(
+        payload,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        workers=max(1, workers),
+        rule_guidance=policy_config.rule_guidance,
+    )
     metadata_fragment_skipped = (
         payload_ops.apply_metadata_fragment_skip(
             payload,
@@ -102,6 +105,7 @@ def apply_translation_policies(
     narrow_body_skipped = 0
     skip_summary = {
         "title_skipped": 0,
+        "reference_tail_skipped": 0,
         "tail_skipped": 0,
         "ref_text_skipped": ref_text_skipped,
         "reference_zone_skipped": reference_zone_skipped,
@@ -127,9 +131,9 @@ def apply_translation_policies(
         )
         classified_items = payload_ops.apply_classification_labels(payload, labels)
 
-    if policy_config.enable_after_last_title_cutoff:
+    if policy_config.enable_reference_tail_skip:
         title_skipped = payload_ops.apply_title_skip(payload)
-        tail_skipped = payload_ops.apply_after_last_title_skip(
+        reference_tail_skipped = payload_ops.apply_reference_tail_skip(
             payload,
             page_idx=page_idx,
             cutoff_page_idx=policy_config.sci_cutoff_page_idx,
@@ -137,7 +141,8 @@ def apply_translation_policies(
         )
         skip_summary = {
             "title_skipped": title_skipped,
-            "tail_skipped": tail_skipped,
+            "reference_tail_skipped": reference_tail_skipped,
+            "tail_skipped": reference_tail_skipped,
             "ref_text_skipped": ref_text_skipped,
             "reference_zone_skipped": reference_zone_skipped,
             "narrow_body_skipped": narrow_body_skipped,
@@ -152,6 +157,7 @@ def apply_translation_policies(
     elif policy_config.enable_title_skip:
         skip_summary = {
             "title_skipped": payload_ops.apply_title_skip(payload),
+            "reference_tail_skipped": 0,
             "tail_skipped": 0,
             "ref_text_skipped": ref_text_skipped,
             "reference_zone_skipped": reference_zone_skipped,

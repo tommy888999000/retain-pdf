@@ -9,6 +9,7 @@ from .deepseek_client import build_single_item_fallback_messages
 from .deepseek_client import extract_json_text
 from .deepseek_client import extract_single_item_translation_text
 from .deepseek_client import request_chat_content
+from translation.policy.metadata_filter import looks_like_nontranslatable_metadata
 from translation.policy.metadata_filter import looks_like_url_fragment
 from translation.policy.metadata_filter import should_skip_metadata_fragment
 
@@ -141,6 +142,8 @@ def _should_force_translate_body_text(item: dict) -> bool:
         return False
     if should_skip_metadata_fragment(item):
         return False
+    if looks_like_nontranslatable_metadata(item):
+        return False
     if _looks_like_reference_entry(source_text):
         return False
     if _looks_like_garbled_fragment(source_text):
@@ -218,6 +221,8 @@ def _validate_batch_result(batch: list[dict], result: dict[str, dict[str, str]])
                 continue
             if _looks_like_reference_entry(source_text):
                 continue
+            if looks_like_nontranslatable_metadata(item):
+                continue
             if _looks_like_english_prose(source_text):
                 raise ValueError(f"{item_id}: translation unchanged from English source")
 
@@ -229,9 +234,15 @@ def _translate_single_item_plain_text(
     base_url: str = "https://api.deepseek.com/v1",
     request_label: str = "",
     domain_guidance: str = "",
+    mode: str = "fast",
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
-        build_single_item_fallback_messages(item, domain_guidance=domain_guidance),
+        build_single_item_fallback_messages(
+            item,
+            domain_guidance=domain_guidance,
+            mode=mode,
+            structured_decision=False,
+        ),
         api_key=api_key,
         model=model,
         base_url=base_url,
@@ -269,6 +280,7 @@ def _translate_single_item_plain_text_with_retries(
                 base_url=base_url,
                 request_label=f"{request_label} req#{attempt}" if request_label else "",
                 domain_guidance=domain_guidance,
+                mode=mode,
             )
             result = _canonicalize_batch_result([item], result)
             _validate_batch_result([item], result)
@@ -367,7 +379,12 @@ def _translate_single_item_with_decision(
     mode: str = "fast",
 ) -> dict[str, dict[str, str]]:
     content = request_chat_content(
-        build_single_item_fallback_messages(item, domain_guidance=domain_guidance, mode=mode),
+        build_single_item_fallback_messages(
+            item,
+            domain_guidance=domain_guidance,
+            mode=mode,
+            structured_decision=True,
+        ),
         api_key=api_key,
         model=model,
         base_url=base_url,
@@ -416,152 +433,15 @@ def translate_batch(
     domain_guidance: str = "",
     mode: str = "fast",
 ) -> dict[str, dict[str, str]]:
-    if mode != "sci":
-        return _translate_items_plain_text(
-            batch,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            request_label=request_label,
-            domain_guidance=domain_guidance,
-            mode=mode,
-        )
-
-    cached_result, uncached_batch = split_cached_batch(
+    return _translate_items_plain_text(
         batch,
+        api_key=api_key,
         model=model,
         base_url=base_url,
+        request_label=request_label,
         domain_guidance=domain_guidance,
         mode=mode,
     )
-    if request_label and cached_result:
-        print(
-            f"{request_label}: cache hit {len(cached_result)}/{len(batch)}",
-            flush=True,
-        )
-    if not uncached_batch:
-        return cached_result
-
-    last_error: Exception | None = None
-    for attempt in range(1, 5):
-        started = time.perf_counter()
-        try:
-            if request_label:
-                print(
-                    f"{request_label}: translate attempt {attempt}/4 items={len(uncached_batch)}",
-                    flush=True,
-                )
-            result = _translate_batch_once(
-                uncached_batch,
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                request_label=f"{request_label} req#{attempt}" if request_label else "",
-                domain_guidance=domain_guidance,
-                mode=mode,
-            )
-            store_cached_batch(
-                uncached_batch,
-                result,
-                model=model,
-                base_url=base_url,
-                domain_guidance=domain_guidance,
-                mode=mode,
-            )
-            merged = {**cached_result, **result}
-            if request_label:
-                elapsed = time.perf_counter() - started
-                print(f"{request_label}: translate ok in {elapsed:.2f}s", flush=True)
-            return merged
-        except SuspiciousKeepOriginError as exc:
-            last_error = exc
-            elapsed = time.perf_counter() - started
-            if request_label:
-                print(
-                    f"{request_label}: suspicious keep_origin after {elapsed:.2f}s for {exc.item_id}; "
-                    "downgrading only that item to single-item force-translate",
-                    flush=True,
-                )
-            suspect_item = next((item for item in uncached_batch if item.get("item_id") == exc.item_id), None)
-            if suspect_item is None:
-                raise
-            preserved = {item_id: value for item_id, value in exc.result.items() if item_id != exc.item_id}
-            single = _translate_single_item_plain_text(
-                suspect_item,
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                request_label=f"{request_label} forced-single {exc.item_id}",
-                domain_guidance=domain_guidance,
-            )
-            merged = {**preserved, **single}
-            store_cached_batch(
-                uncached_batch,
-                merged,
-                model=model,
-                base_url=base_url,
-                domain_guidance=domain_guidance,
-                mode=mode,
-            )
-            return {**cached_result, **merged}
-        except (ValueError, KeyError, json.JSONDecodeError) as exc:
-            last_error = exc
-            elapsed = time.perf_counter() - started
-            if request_label:
-                print(
-                    f"{request_label}: parse failed attempt {attempt}/4 after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
-                    flush=True,
-                )
-            if attempt >= 4:
-                if len(uncached_batch) > 1:
-                    if request_label:
-                        print(f"{request_label}: falling back to single-item translation", flush=True)
-                    result: dict[str, str] = dict(cached_result)
-                    for item_index, item in enumerate(uncached_batch, start=1):
-                        single = translate_batch(
-                            [item],
-                            api_key=api_key,
-                            model=model,
-                            base_url=base_url,
-                            request_label=f"{request_label} item {item_index}/{len(uncached_batch)} {item['item_id']}",
-                            domain_guidance=domain_guidance,
-                            mode=mode,
-                        )
-                        result.update(single)
-                    return result
-                if mode == "sci":
-                    single = _translate_single_item_with_decision(
-                        uncached_batch[0],
-                        api_key=api_key,
-                        model=model,
-                        base_url=base_url,
-                        request_label=f"{request_label} single-item fallback {uncached_batch[0]['item_id']}",
-                        domain_guidance=domain_guidance,
-                        mode=mode,
-                    )
-                else:
-                    single = _translate_single_item_plain_text(
-                        uncached_batch[0],
-                        api_key=api_key,
-                        model=model,
-                        base_url=base_url,
-                        request_label=f"{request_label} plain-text fallback {uncached_batch[0]['item_id']}",
-                        domain_guidance=domain_guidance,
-                    )
-                store_cached_batch(
-                    uncached_batch,
-                    single,
-                    model=model,
-                    base_url=base_url,
-                    domain_guidance=domain_guidance,
-                    mode=mode,
-                )
-                return {**cached_result, **single}
-            time.sleep(min(8, 2 * attempt))
-
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("Translation response parsing failed without an exception.")
 
 
 def translate_items_to_text_map(
