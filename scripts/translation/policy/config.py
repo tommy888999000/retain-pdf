@@ -14,7 +14,7 @@ from translation.policy.rule_profiles import build_rule_profile_context
 class TranslationPolicyConfig:
     mode: str
     enable_title_skip: bool = False
-    enable_after_last_title_cutoff: bool = False
+    enable_reference_tail_skip: bool = False
     enable_reference_zone_skip: bool = False
     enable_narrow_body_noise_skip: bool = False
     enable_metadata_fragment_skip: bool = False
@@ -27,6 +27,10 @@ class TranslationPolicyConfig:
     rule_profile_name: str = DEFAULT_RULE_PROFILE_NAME
     rule_profile_text: str = ""
     custom_rules_text: str = ""
+
+    @property
+    def enable_after_last_title_cutoff(self) -> bool:
+        return self.enable_reference_tail_skip
 
     @property
     def domain_guidance(self) -> str:
@@ -54,12 +58,16 @@ def should_skip_title_translation(mode: str, skip_title_translation: bool) -> bo
     return mode in {"precise", "sci"} or skip_title_translation
 
 
-def should_apply_after_last_title_cutoff(mode: str) -> bool:
+def should_apply_reference_tail_skip(mode: str) -> bool:
     return mode == "sci"
 
 
+def should_apply_after_last_title_cutoff(mode: str) -> bool:
+    return should_apply_reference_tail_skip(mode)
+
+
 def should_apply_reference_zone_skip(mode: str) -> bool:
-    return False
+    return True
 
 
 def should_apply_narrow_body_noise_skip(mode: str) -> bool:
@@ -98,6 +106,7 @@ def build_translation_policy_config(
     domain_context: dict[str, str] | None = None,
     rule_profile_name: str = DEFAULT_RULE_PROFILE_NAME,
     custom_rules_text: str = "",
+    enable_reference_tail_skip: bool | None = None,
     enable_title_skip: bool | None = None,
     enable_after_last_title_cutoff: bool | None = None,
     enable_reference_zone_skip: bool | None = None,
@@ -108,16 +117,23 @@ def build_translation_policy_config(
     enable_domain_inference: bool | None = None,
 ) -> TranslationPolicyConfig:
     rule_profile = build_rule_profile_context(rule_profile_name, custom_rules_text)
+    resolved_reference_tail_skip = (
+        should_apply_reference_tail_skip(mode)
+        and sci_cutoff_page_idx is not None
+        and sci_cutoff_block_idx is not None
+        if enable_reference_tail_skip is None and enable_after_last_title_cutoff is None
+        else (
+            enable_after_last_title_cutoff
+            if enable_reference_tail_skip is None
+            else enable_reference_tail_skip
+        )
+    )
     return TranslationPolicyConfig(
         mode=mode,
         enable_title_skip=should_skip_title_translation(mode, skip_title_translation)
         if enable_title_skip is None
         else enable_title_skip,
-        enable_after_last_title_cutoff=should_apply_after_last_title_cutoff(mode)
-        and sci_cutoff_page_idx is not None
-        and sci_cutoff_block_idx is not None
-        if enable_after_last_title_cutoff is None
-        else enable_after_last_title_cutoff,
+        enable_reference_tail_skip=bool(resolved_reference_tail_skip),
         enable_reference_zone_skip=should_apply_reference_zone_skip(mode)
         and sci_cutoff_page_idx is not None
         and sci_cutoff_block_idx is not None
@@ -209,6 +225,7 @@ __all__ = [
     "extract_ocr_preview_text",
     "resolve_reference_cutoff",
     "should_apply_after_last_title_cutoff",
+    "should_apply_reference_tail_skip",
     "should_apply_candidate_continuation_review",
     "should_apply_metadata_fragment_skip",
     "should_apply_narrow_body_noise_skip",

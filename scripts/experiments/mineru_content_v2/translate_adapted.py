@@ -140,8 +140,8 @@ def main() -> None:
         if args.mode == "sci":
             if skip_summary["title_skipped"]:
                 print(f"page {page_idx + 1}: skipped {skip_summary['title_skipped']} title items")
-            if skip_summary["tail_skipped"]:
-                print(f"page {page_idx + 1}: skipped {skip_summary['tail_skipped']} items after the last title cutoff")
+            if skip_summary["reference_tail_skipped"]:
+                print(f"page {page_idx + 1}: skipped {skip_summary['reference_tail_skipped']} items in the reference tail")
         elif args.skip_title_translation and skip_summary["title_skipped"]:
             print(f"page {page_idx + 1}: skipped {skip_summary['title_skipped']} title items")
         pending = pending_translation_items(payload)

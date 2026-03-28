@@ -28,7 +28,7 @@ def _prompt_hash(mode: str = "fast") -> str:
     digest.update(load_prompt("translation_task.txt").encode("utf-8"))
     if cache_key == "sci":
         digest.update(b"\n---\n")
-        digest.update(load_prompt("translation_sci_decision.txt").encode("utf-8"))
+        digest.update(b"SCI_LOCAL_DECISION_PLAIN_TEXT_V1")
     result = digest.hexdigest()
     if cache_key == "fast":
         _PROMPT_HASH = result

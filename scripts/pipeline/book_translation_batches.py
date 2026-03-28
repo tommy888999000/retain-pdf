@@ -60,7 +60,7 @@ def translate_pending_units(
                 unit_to_pages.setdefault(unit_id, set()).add(page_idx)
 
     pending = pending_translation_items(flat_payload)
-    effective_batch_size = 1 if mode != "sci" else max(1, batch_size)
+    effective_batch_size = 1
     batches = chunked(pending, effective_batch_size)
     total_batches = len(batches)
     flush_interval = _save_flush_interval(workers=workers, total_batches=total_batches)

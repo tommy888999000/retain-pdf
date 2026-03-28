@@ -307,7 +307,7 @@ def apply_title_skip(payload: list[dict]) -> int:
     return skipped
 
 
-def apply_after_last_title_skip(
+def apply_reference_tail_skip(
     payload: list[dict],
     *,
     page_idx: int,
@@ -329,9 +329,24 @@ def apply_after_last_title_skip(
             continue
         if not item.get("should_translate", True):
             continue
-        _mark_item_skipped(item, "skip_after_last_title")
+        _mark_item_skipped(item, "skip_reference_tail")
         skipped += 1
     return skipped
+
+
+def apply_after_last_title_skip(
+    payload: list[dict],
+    *,
+    page_idx: int,
+    cutoff_page_idx: int | None,
+    cutoff_block_idx: int | None,
+) -> int:
+    return apply_reference_tail_skip(
+        payload,
+        page_idx=page_idx,
+        cutoff_page_idx=cutoff_page_idx,
+        cutoff_block_idx=cutoff_block_idx,
+    )
 
 
 def apply_scientific_paper_skips(
@@ -342,7 +357,7 @@ def apply_scientific_paper_skips(
     cutoff_block_idx: int | None = None,
 ) -> dict[str, int]:
     title_skipped = apply_title_skip(payload)
-    tail_skipped = apply_after_last_title_skip(
+    reference_tail_skipped = apply_reference_tail_skip(
         payload,
         page_idx=page_idx,
         cutoff_page_idx=cutoff_page_idx,
@@ -350,7 +365,8 @@ def apply_scientific_paper_skips(
     )
     return {
         "title_skipped": title_skipped,
-        "tail_skipped": tail_skipped,
+        "reference_tail_skipped": reference_tail_skipped,
+        "tail_skipped": reference_tail_skipped,
     }
 
 
