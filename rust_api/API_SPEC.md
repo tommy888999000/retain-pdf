@@ -155,7 +155,7 @@ Request:
   "rule_profile_name": "general_sci",
   "custom_rules_text": "",
   "compile_workers": 0,
-  "typst_font_family": "Noto Serif CJK SC",
+  "typst_font_family": "Source Han Serif SC",
   "pdf_compress_dpi": 200,
   "translated_pdf_name": "",
   "model_version": "vlm",

@@ -28,17 +28,29 @@ CONTINUATION_REBALANCE_NON_PUNCT_MIN_MOVE_UNITS = 18.0
 
 
 def is_flag_like_plain_text_block(item: dict) -> bool:
-    text = build_plain_text(item)
+    text = re.sub(r"\s+", " ", build_plain_text(item)).strip()
     if not text:
         return False
     if len(item.get("formula_map", [])) > 0:
         return False
+    metadata = item.get("metadata") or {}
+    if str(metadata.get("structure_role", "")).strip().lower() == "body":
+        return False
     line_count = len(item.get("lines", []))
-    if line_count > 2:
+    if line_count > 1:
         return False
     if not text.startswith("-"):
         return False
-    if len(text) > 64:
+    body = text[1:].strip()
+    if not body:
+        return False
+    if any(mark in body for mark in (".", "。", "!", "！", "?", "？", ";", "；")):
+        return False
+    if len(body) > 32:
+        return False
+    if len(WORD_RE.findall(body)) > 6:
+        return False
+    if len(ZH_CHAR_RE.findall(body)) > 18:
         return False
     return True
 

@@ -1,3 +1,4 @@
+from collections import Counter
 import re
 import json
 import time
@@ -31,6 +32,23 @@ class SuspiciousKeepOriginError(ValueError):
         super().__init__(f"{item_id}: suspicious keep_origin for long English body text")
         self.item_id = item_id
         self.result = result
+
+
+class UnexpectedPlaceholderError(ValueError):
+    def __init__(self, item_id: str, unexpected: list[str]) -> None:
+        super().__init__(f"{item_id}: unexpected placeholders in translation: {unexpected}")
+        self.item_id = item_id
+        self.unexpected = unexpected
+
+
+class PlaceholderInventoryError(ValueError):
+    def __init__(self, item_id: str, source_sequence: list[str], translated_sequence: list[str]) -> None:
+        super().__init__(
+            f"{item_id}: placeholder inventory mismatch: source={source_sequence} translated={translated_sequence}"
+        )
+        self.item_id = item_id
+        self.source_sequence = source_sequence
+        self.translated_sequence = translated_sequence
 
 
 def _normalize_decision(value: str) -> str:
@@ -74,6 +92,116 @@ def _parse_translation_payload(content: str) -> dict[str, dict[str, str]]:
 
 def _placeholders(text: str) -> set[str]:
     return set(PLACEHOLDER_RE.findall(text or ""))
+
+
+def _placeholder_sequence(text: str) -> list[str]:
+    return PLACEHOLDER_RE.findall(text or "")
+
+
+def _repair_safe_duplicate_placeholders(source_text: str, translated_text: str) -> str | None:
+    source_sequence = _placeholder_sequence(source_text)
+    if not source_sequence:
+        return None
+    matches = list(PLACEHOLDER_RE.finditer(translated_text or ""))
+    if not matches:
+        return None
+    translated_sequence = [match.group(0) for match in matches]
+    if translated_sequence == source_sequence or len(translated_sequence) <= len(source_sequence):
+        return None
+    source_inventory = Counter(source_sequence)
+    translated_inventory = Counter(translated_sequence)
+    for placeholder, count in translated_inventory.items():
+        if count < source_inventory.get(placeholder, 0):
+            return None
+    if any(placeholder not in source_inventory for placeholder in translated_inventory):
+        return None
+
+    kept_match_indexes: list[int] = []
+    cursor = 0
+    for placeholder in source_sequence:
+        while cursor < len(translated_sequence) and translated_sequence[cursor] != placeholder:
+            cursor += 1
+        if cursor >= len(translated_sequence):
+            return None
+        kept_match_indexes.append(cursor)
+        cursor += 1
+
+    if len(kept_match_indexes) == len(matches):
+        return None
+
+    keep_set = set(kept_match_indexes)
+    rebuilt_parts: list[str] = []
+    prev_end = 0
+    for index, match in enumerate(matches):
+        rebuilt_parts.append(translated_text[prev_end:match.start()])
+        if index in keep_set:
+            rebuilt_parts.append(match.group(0))
+        prev_end = match.end()
+    rebuilt_parts.append(translated_text[prev_end:])
+
+    repaired_text = "".join(rebuilt_parts)
+    repaired_text = re.sub(r"[ \t]{2,}", " ", repaired_text)
+    repaired_text = re.sub(r"\s+([,.;:!?])", r"\1", repaired_text)
+    if _placeholder_sequence(repaired_text) != source_sequence:
+        return None
+    return repaired_text.strip()
+
+
+def _has_formula_placeholders(item: dict) -> bool:
+    return bool(_placeholders(_unit_source_text(item)))
+
+
+def _placeholder_alias_maps(item: dict) -> tuple[dict[str, str], dict[str, str]]:
+    source_sequence = _placeholder_sequence(_unit_source_text(item))
+    original_to_alias: dict[str, str] = {}
+    alias_to_original: dict[str, str] = {}
+    for index, placeholder in enumerate(dict.fromkeys(source_sequence), start=1):
+        alias = f"[[FORMULA_{1000 + index * 137}]]"
+        original_to_alias[placeholder] = alias
+        alias_to_original[alias] = placeholder
+    return original_to_alias, alias_to_original
+
+
+def _replace_placeholders(text: str, mapping: dict[str, str]) -> str:
+    replaced = text or ""
+    for source, target in mapping.items():
+        replaced = replaced.replace(source, target)
+    return replaced
+
+
+def _item_with_placeholder_aliases(item: dict, mapping: dict[str, str]) -> dict:
+    aliased = dict(item)
+    for key in (
+        "source_text",
+        "protected_source_text",
+        "mixed_original_protected_source_text",
+        "translation_unit_protected_source_text",
+        "group_protected_source_text",
+    ):
+        if key in aliased and aliased.get(key):
+            aliased[key] = _replace_placeholders(str(aliased.get(key) or ""), mapping)
+    return aliased
+
+
+def _restore_placeholder_aliases(result: dict[str, dict[str, str]], mapping: dict[str, str]) -> dict[str, dict[str, str]]:
+    restored: dict[str, dict[str, str]] = {}
+    for item_id, payload in result.items():
+        translated_text = _replace_placeholders(str(payload.get("translated_text", "") or ""), mapping)
+        restored[item_id] = _result_entry(str(payload.get("decision", "translate") or "translate"), translated_text)
+    return restored
+
+
+def _placeholder_stability_guidance(item: dict, source_sequence: list[str]) -> str:
+    if not source_sequence:
+        return ""
+    return (
+        "Placeholder safety rules for this item:\n"
+        f"- Allowed placeholders exactly: {', '.join(source_sequence)}\n"
+        f"- Placeholder sequence in source_text: {' -> '.join(source_sequence)}\n"
+        "- Keep placeholders as atomic tokens.\n"
+        "- Do not invent, renumber, duplicate, omit, split, or reorder placeholders.\n"
+        "- If a placeholder stands for a whole formula or expression, keep that placeholder as one unit."
+    )
 
 
 def _unit_source_text(item: dict) -> str:
@@ -181,6 +309,10 @@ def _canonicalize_batch_result(batch: list[dict], result: dict[str, dict[str, st
         translated_text = str(payload.get("translated_text", "") or "").strip()
         if item is not None:
             source_text = _unit_source_text(item).strip()
+            if decision != KEEP_ORIGIN_LABEL and translated_text:
+                repaired_text = _repair_safe_duplicate_placeholders(source_text, translated_text)
+                if repaired_text is not None:
+                    translated_text = repaired_text
             if (
                 decision != KEEP_ORIGIN_LABEL
                 and translated_text
@@ -215,7 +347,11 @@ def _validate_batch_result(batch: list[dict], result: dict[str, dict[str, str]])
         translated_placeholders = _placeholders(translated_text)
         if not translated_placeholders.issubset(source_placeholders):
             unexpected = sorted(translated_placeholders - source_placeholders)
-            raise ValueError(f"{item_id}: unexpected placeholders in translation: {unexpected}")
+            raise UnexpectedPlaceholderError(item_id, unexpected)
+        source_sequence = _placeholder_sequence(source_text)
+        translated_sequence = _placeholder_sequence(translated_text)
+        if Counter(translated_sequence) != Counter(source_sequence):
+            raise PlaceholderInventoryError(item_id, source_sequence, translated_sequence)
         if translated_text.strip() == source_text.strip():
             if looks_like_url_fragment(source_text):
                 continue
@@ -255,6 +391,57 @@ def _translate_single_item_plain_text(
     return {item["item_id"]: _result_entry("translate", translated_text)}
 
 
+def _translate_single_item_tagged_text(
+    item: dict,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+) -> dict[str, dict[str, str]]:
+    content = request_chat_content(
+        build_messages([item], domain_guidance=domain_guidance, mode="fast"),
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        temperature=0.0,
+        response_format=None,
+        timeout=120,
+        request_label=request_label,
+    )
+    result = _parse_translation_payload(content)
+    result = _canonicalize_batch_result([item], result)
+    _validate_batch_result([item], result)
+    return result
+
+
+def _translate_single_item_stable_placeholder_text(
+    item: dict,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+) -> dict[str, dict[str, str]]:
+    original_to_alias, alias_to_original = _placeholder_alias_maps(item)
+    aliased_item = _item_with_placeholder_aliases(item, original_to_alias)
+    aliased_sequence = _placeholder_sequence(_unit_source_text(aliased_item))
+    stability_guidance = _placeholder_stability_guidance(aliased_item, aliased_sequence)
+    merged_guidance = "\n\n".join(part for part in [domain_guidance.strip(), stability_guidance.strip()] if part)
+    result = _translate_single_item_tagged_text(
+        aliased_item,
+        api_key=api_key,
+        model=model,
+        base_url=base_url,
+        request_label=request_label,
+        domain_guidance=merged_guidance,
+    )
+    restored = _restore_placeholder_aliases(result, alias_to_original)
+    restored = _canonicalize_batch_result([item], restored)
+    _validate_batch_result([item], restored)
+    return restored
+
+
 def _translate_single_item_plain_text_with_retries(
     item: dict,
     api_key: str = "",
@@ -288,6 +475,45 @@ def _translate_single_item_plain_text_with_retries(
                 elapsed = time.perf_counter() - started
                 print(f"{request_label}: plain-text ok in {elapsed:.2f}s", flush=True)
             return result
+        except (UnexpectedPlaceholderError, PlaceholderInventoryError) as exc:
+            last_error = exc
+            elapsed = time.perf_counter() - started
+            if request_label:
+                print(
+                    f"{request_label}: plain-text placeholder failed attempt {attempt}/4 after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            if _has_formula_placeholders(item):
+                tagged_started = time.perf_counter()
+                try:
+                    if request_label:
+                        print(
+                            f"{request_label}: retrying with tagged single-item format for placeholder stability",
+                            flush=True,
+                        )
+                    result = _translate_single_item_stable_placeholder_text(
+                        item,
+                        api_key=api_key,
+                        model=model,
+                        base_url=base_url,
+                        request_label=f"{request_label} tagged" if request_label else "",
+                        domain_guidance=domain_guidance,
+                    )
+                    if request_label:
+                        tagged_elapsed = time.perf_counter() - tagged_started
+                        print(f"{request_label}: tagged single-item ok in {tagged_elapsed:.2f}s", flush=True)
+                    return result
+                except (ValueError, KeyError, json.JSONDecodeError) as tagged_exc:
+                    last_error = tagged_exc
+                    if request_label:
+                        tagged_elapsed = time.perf_counter() - tagged_started
+                        print(
+                            f"{request_label}: tagged single-item failed attempt {attempt}/4 after {tagged_elapsed:.2f}s: {type(tagged_exc).__name__}: {tagged_exc}",
+                            flush=True,
+                        )
+            if attempt >= 4:
+                raise last_error
+            time.sleep(min(8, 2 * attempt))
         except SuspiciousKeepOriginError as exc:
             last_error = exc
             if request_label:
@@ -337,10 +563,28 @@ def _translate_items_plain_text(
             f"{request_label}: plain-text cache hit {len(cached_result)}/{len(batch)}",
             flush=True,
         )
+    valid_cached: dict[str, dict[str, str]] = {}
+    validated_uncached = list(uncached_batch)
+    for item in batch:
+        item_id = item["item_id"]
+        cached_item_result = cached_result.get(item_id)
+        if not cached_item_result:
+            continue
+        try:
+            canonical = _canonicalize_batch_result([item], {item_id: cached_item_result})
+            _validate_batch_result([item], canonical)
+            valid_cached.update(canonical)
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            validated_uncached.append(item)
+            if request_label:
+                print(
+                    f"{request_label}: dropped invalid cached translation for {item_id}: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+    merged = dict(valid_cached)
+    uncached_batch = validated_uncached
     if not uncached_batch:
-        return cached_result
-
-    merged = dict(cached_result)
+        return merged
     total_items = len(uncached_batch)
     for index, item in enumerate(uncached_batch, start=1):
         item_label = (

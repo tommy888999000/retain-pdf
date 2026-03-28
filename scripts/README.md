@@ -5,7 +5,7 @@ This directory contains the OCR translation and PDF rendering pipeline.
 Current status:
 
 - paragraph-based Typst rendering is the default path
-- default Typst Chinese font is `Noto Serif CJK SC`
+- default Typst Chinese font is `Source Han Serif SC`
 - body layout tuning can be overridden from CLI without editing code
 - current stable body-text strategy is: Chinese-first leading, page-level body font unification, emergency fallback only for true overflow blocks
 - `list` child blocks are extracted and rendered item-by-item

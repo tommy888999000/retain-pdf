@@ -38,7 +38,7 @@
           <h2>提交</h2>
           <p class="muted">普通用户上传限制为 10MB / 30 页，目前仅建议上传 sci 论文 PDF。默认直接使用站点内置服务凭证；如果你想改用自己的 MinerU / 模型 key，可直接在这里覆盖。</p>
           <div id="job-warning" class="job-warning hidden">检测到上一个任务还未完成。建议先等待当前任务结束，避免重复提交。</div>
-          <form id="job-form" class="form">
+          <form id="job-form" class="form" novalidate>
             <div class="grid two">
               <label>
                 <span>MinerU API key</span>
@@ -51,7 +51,7 @@
             </div>
 
             <label for="file" class="upload-tile">
-              <input id="file" name="file" type="file" accept="application/pdf,.pdf" required />
+              <input id="file" name="file" type="file" accept="application/pdf,.pdf" />
               <span class="upload-kicker">PDF 上传</span>
               <strong id="file-label">点击选择文件或拖到这里</strong>
               <em>支持单个 PDF，默认参数可直接运行</em>
@@ -259,7 +259,7 @@
           <div class="grid three">
             <label>
               <span>workers</span>
-              <input id="workers" name="workers" type="number" min="0" value="50" />
+              <input id="workers" name="workers" type="number" min="0" value="100" />
             </label>
             <label>
               <span>batch_size</span>

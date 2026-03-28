@@ -4,6 +4,7 @@ from math import ceil
 from statistics import median
 
 from rendering.font_fit import bbox_width
+from rendering.font_fit import cover_bbox as resolve_cover_bbox
 from rendering.font_fit import estimate_font_size_pt
 from rendering.font_fit import estimate_leading_em
 from rendering.font_fit import inner_bbox
@@ -13,6 +14,7 @@ from rendering.font_fit import NON_BODY_LEADING_FLOOR_MIN
 from rendering.font_fit import NON_BODY_LEADING_MAX
 from rendering.font_fit import NON_BODY_LEADING_MIN
 from rendering.font_fit import page_baseline_font_size
+from rendering.font_fit import percentile_value
 from rendering.font_fit import BODY_LEADING_FLOOR_MIN
 from rendering.font_fit import BODY_LEADING_MAX
 from rendering.font_fit import BODY_LEADING_MIN
@@ -70,6 +72,7 @@ ADJACENT_BODY_SMOOTH_MAX_LEADING_DELTA_EM = 0.06
 ADJACENT_BODY_SMOOTH_RELAXED_LEADING_DELTA_EM = 0.09
 ADJACENT_BODY_SMOOTH_GROW_DENSITY_MAX = 0.95
 ADJACENT_BODY_SMOOTH_RELAXED_GROW_DENSITY_MAX = 0.99
+BODY_PAGE_FONT_ANCHOR_PERCENTILE = 0.46
 
 
 def _page_box_area_ratio(bbox: list[float], page_width: float | None, page_height: float | None) -> float:
@@ -326,7 +329,7 @@ def build_render_blocks(
         if item_with_flag["_is_body_text_candidate"]:
             body_base_sizes.append(font_size_pt)
 
-    page_body_font_size_pt = round(median(body_base_sizes), 2) if body_base_sizes else None
+    page_body_font_size_pt = round(percentile_value(body_base_sizes, BODY_PAGE_FONT_ANCHOR_PERCENTILE), 2) if body_base_sizes else None
 
     block_payloads: list[dict] = []
 
@@ -335,6 +338,7 @@ def build_render_blocks(
         bbox = item.get("bbox", [])
         if len(bbox) != 4 or not translated_text:
             continue
+        use_raw_text_bbox = bool(item.get("_use_raw_text_bbox"))
         font_size_pt, leading_em = base_metrics[index]
         formula_map = item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("formula_map", [])
         density_ratio = translation_density_ratio(item, translated_text)
@@ -384,12 +388,15 @@ def build_render_blocks(
                 strength=NON_BODY_LEADING_SIZE_ADJUST,
                 floor_min_leading_em=NON_BODY_LEADING_FLOOR_MIN,
             )
+        item_inner_bbox = inner_bbox(item)
+        item_cover_bbox = resolve_cover_bbox(item)
         block_payloads.append(
             {
                 "index": index,
                 "item": item,
                 "bbox": bbox,
-                "inner_bbox": inner_bbox(item),
+                "cover_bbox": item_cover_bbox,
+                "inner_bbox": list(bbox) if use_raw_text_bbox else item_inner_bbox,
                 "translated_text": translated_text,
                 "formula_map": formula_map,
                 "render_kind": "plain_line" if item.get("_force_plain_line") or is_flag_like_plain_text_block(item) else "markdown",
@@ -620,6 +627,7 @@ def build_render_blocks(
             RenderBlock(
                 block_id=f"item-{payload['index']}",
                 bbox=payload["bbox"],
+                cover_bbox=payload["cover_bbox"],
                 inner_bbox=payload["inner_bbox"],
                 markdown_text=build_markdown_from_parts(payload["translated_text"], payload["formula_map"]),
                 plain_text=build_plain_text_from_text(payload["translated_text"]),

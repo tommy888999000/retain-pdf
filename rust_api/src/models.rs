@@ -173,7 +173,7 @@ impl CreateJobRequest {
         let model = self.model.to_lowercase();
         let base = self.base_url.to_lowercase();
         if model.contains("deepseek") || base.contains("deepseek.com") {
-            50
+            100
         } else {
             4
         }
@@ -686,7 +686,7 @@ fn default_render_mode() -> String {
     "auto".to_string()
 }
 fn default_typst_font_family() -> String {
-    "Noto Serif CJK SC".to_string()
+    "Source Han Serif SC".to_string()
 }
 fn default_pdf_compress_dpi() -> i64 {
     200

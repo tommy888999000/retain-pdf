@@ -34,7 +34,7 @@ const PROVIDER_PRESETS = {
   deepseek: {
     model: "deepseek-chat",
     base_url: "https://api.deepseek.com/v1",
-    workers: "50",
+    workers: "100",
   },
   local_q35: {
     model: "Q3.5-turbo",

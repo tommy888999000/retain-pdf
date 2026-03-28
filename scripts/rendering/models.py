@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class RenderBlock:
     block_id: str
     bbox: list[float]
+    cover_bbox: list[float]
     inner_bbox: list[float]
     markdown_text: str
     plain_text: str

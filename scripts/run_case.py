@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--start-page", type=int, default=0, help="Zero-based start page index. Default is the first page.")
     parser.add_argument("--end-page", type=int, default=-1, help="Zero-based end page index, inclusive. Default is the last page.")
     parser.add_argument("--batch-size", type=int, default=1, help="Number of text items per API call.")
-    parser.add_argument("--workers", type=int, default=50, help="Concurrent translation requests.")
+    parser.add_argument("--workers", type=int, default=100, help="Concurrent translation requests.")
     parser.add_argument(
         "--mode",
         type=str,

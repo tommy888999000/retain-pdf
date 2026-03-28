@@ -9,6 +9,7 @@ from config import layout
 MIN_FONT_SIZE_PT = 8.4
 MAX_FONT_SIZE_PT = 11.6
 ZH_FONT_SCALE = 0.91
+PAGE_BASELINE_PERCENTILE = 0.42
 BLOCK_SCALE_MIN = 0.985
 BLOCK_SCALE_MAX = 1.015
 DEFAULT_LEADING_EM = 0.40
@@ -40,6 +41,17 @@ LINE_COUNT_GROW_THRESHOLD = 1.12
 FORMULA_CHARS_PER_LINE_PENALTY = 0.82
 HIGH_DENSITY_LEADING_RATIO = 0.9
 FORMULA_LEADING_RATIO = 0.92
+SOURCE_COMPACTNESS_TEXT_TRIGGER = 52
+SOURCE_COMPACTNESS_LINE_TRIGGER = 3
+SOURCE_COMPACTNESS_X_TRIGGER = 0.76
+SOURCE_COMPACTNESS_Y_TRIGGER = 0.40
+SOURCE_COMPACTNESS_MAX = 0.7
+BODY_PAGE_BLEND_BASE = 0.86
+BODY_PAGE_BLEND_MIN = 0.74
+BODY_COMPACT_FONT_SCALE_MAX = 0.04
+BODY_ZH_TARGET_BASE = 0.66
+BODY_ZH_TARGET_MIN = 0.61
+BODY_COMPACT_LEADING_TIGHTEN_MAX = 0.06
 
 
 def line_height(line: dict) -> float:
@@ -72,6 +84,20 @@ def median_line_pitch(item: dict) -> float:
     diffs = [centers[i + 1] - centers[i] for i in range(len(centers) - 1)]
     diffs = [diff for diff in diffs if diff > 0]
     return median(diffs) if diffs else 0.0
+
+
+def percentile_value(values: list[float], q: float) -> float:
+    filtered = sorted(value for value in values if value > 0)
+    if not filtered:
+        return 0.0
+    if len(filtered) == 1:
+        return filtered[0]
+    q = clamp(q, 0.0, 1.0)
+    pos = (len(filtered) - 1) * q
+    low = int(pos)
+    high = min(len(filtered) - 1, low + 1)
+    frac = pos - low
+    return filtered[low] * (1.0 - frac) + filtered[high] * frac
 
 
 def plain_text_chars_per_line(item: dict) -> float:
@@ -214,6 +240,30 @@ def occupied_ratio_x(item: dict) -> float:
     return median(widths) / block_width if widths else 0.0
 
 
+def source_compactness_score(item: dict) -> float:
+    text_len = len(re.sub(r"\s+", "", item.get("source_text", "")))
+    if text_len < 36:
+        return 0.0
+
+    lines = visual_line_count(item)
+    density_x = occupied_ratio_x(item)
+    density_y = occupied_ratio(item)
+    score = 0.0
+
+    if text_len >= SOURCE_COMPACTNESS_TEXT_TRIGGER:
+        score += min(0.22, (text_len - SOURCE_COMPACTNESS_TEXT_TRIGGER) / 220.0)
+    if lines >= SOURCE_COMPACTNESS_LINE_TRIGGER:
+        score += min(0.3, max(0, lines - (SOURCE_COMPACTNESS_LINE_TRIGGER - 1)) * 0.08)
+    if density_x >= SOURCE_COMPACTNESS_X_TRIGGER:
+        score += min(0.24, ((density_x - SOURCE_COMPACTNESS_X_TRIGGER) / 0.16) * 0.24)
+    if density_y >= SOURCE_COMPACTNESS_Y_TRIGGER:
+        score += min(0.12, ((density_y - SOURCE_COMPACTNESS_Y_TRIGGER) / 0.24) * 0.12)
+    if formula_ratio(item) >= 0.08:
+        score += 0.08
+
+    return clamp(score, 0.0, SOURCE_COMPACTNESS_MAX)
+
+
 def inner_bbox(item: dict) -> list[float]:
     bbox = item.get("bbox", [])
     if len(bbox) != 4:
@@ -241,6 +291,25 @@ def inner_bbox(item: dict) -> list[float]:
     if ny1 - ny0 < height * 0.7:
         ny0, ny1 = y0 + height * 0.015, y1 - height * 0.015
     return [nx0, ny0, nx1, ny1]
+
+
+def cover_bbox(item: dict) -> list[float]:
+    bbox = item.get("bbox", [])
+    if len(bbox) != 4:
+        return bbox
+
+    inner = inner_bbox(item)
+    if len(inner) != 4:
+        return bbox
+
+    if item.get("_cover_with_inner_bbox"):
+        return inner
+
+    x0, y0, x1, y1 = bbox
+    _ix0, iy0, _ix1, iy1 = inner
+    if iy1 <= iy0:
+        return bbox
+    return [x0, iy0, x1, iy1]
 
 
 def candidate_text_items(items: list[dict]) -> list[dict]:
@@ -300,8 +369,8 @@ def page_baseline_font_size(items: list[dict]) -> tuple[float, float, float, flo
     line_pitches = [pitch for pitch in line_pitches if pitch > 0]
     line_heights = [median_line_height(item) for item in candidates]
     line_heights = [height for height in line_heights if height > 0]
-    baseline_line_pitch = median(line_pitches) if line_pitches else 0.0
-    baseline_line_height = median(line_heights) if line_heights else 0.0
+    baseline_line_pitch = percentile_value(line_pitches, PAGE_BASELINE_PERCENTILE) if line_pitches else 0.0
+    baseline_line_height = percentile_value(line_heights, PAGE_BASELINE_PERCENTILE) if line_heights else 0.0
     metric = baseline_line_pitch or baseline_line_height
     if metric <= 0:
         return fonts.DEFAULT_FONT_SIZE, 0.0, 0.0, 0.0
@@ -369,8 +438,13 @@ def estimate_font_size_pt(
     elif page_line_height > 0 and block_line_height > 0:
         block_scale = clamp(block_line_height / page_line_height, LOCAL_BLOCK_SCALE_MIN, LOCAL_BLOCK_SCALE_MAX)
 
+    compactness = source_compactness_score(item)
     page_estimate = page_font_size * block_scale * layout.BODY_FONT_SIZE_FACTOR if page_font_size > 0 else local_font
-    blended = (page_estimate * 0.88) + (local_font * 0.12)
+    page_weight = max(BODY_PAGE_BLEND_MIN, BODY_PAGE_BLEND_BASE - compactness * 0.18)
+    local_weight = 1.0 - page_weight
+    blended = (page_estimate * page_weight) + (local_font * local_weight)
+    if compactness > 0:
+        blended *= 1.0 - min(BODY_COMPACT_FONT_SCALE_MAX, compactness * 0.055)
     return round(clamp(blended, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
 
 
@@ -378,15 +452,18 @@ def estimate_leading_em(item: dict, page_line_pitch: float, font_size_pt: float)
     block_pitch = local_line_pitch(item) or median_line_pitch(item)
     density_ratio_x = occupied_ratio_x(item)
     formula_weight = formula_ratio(item)
+    compactness = source_compactness_score(item)
     if item.get("_is_body_text_candidate", False):
         pitch = block_pitch or page_line_pitch
+        zh_target = max(BODY_ZH_TARGET_MIN, BODY_ZH_TARGET_BASE - compactness * 0.07)
         if pitch > 0 and font_size_pt > 0:
             ocr_estimated = (pitch / font_size_pt) - 1.0
-            zh_target = 0.66
             mixed = (ocr_estimated * 0.35) + (zh_target * 0.65)
             base = mixed * layout.BODY_LEADING_FACTOR
         else:
-            base = 0.66 * layout.BODY_LEADING_FACTOR
+            base = zh_target * layout.BODY_LEADING_FACTOR
+        if compactness > 0:
+            base *= 1.0 - min(BODY_COMPACT_LEADING_TIGHTEN_MAX, compactness * 0.07)
         if density_ratio_x >= 0.86:
             base = max(base, BODY_LEADING_MIN / HIGH_DENSITY_LEADING_RATIO)
         if formula_weight >= 0.08:

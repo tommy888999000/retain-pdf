@@ -5,6 +5,9 @@ import fitz
 from rendering.pdf_overlay_parts.redaction_config import (
     FORMULA_REDACTION_PAD_X,
     FORMULA_REDACTION_PAD_Y,
+    IMAGE_ITEM_REDACTION_PAD_BOTTOM_Y,
+    IMAGE_ITEM_REDACTION_PAD_TOP_Y,
+    IMAGE_ITEM_REDACTION_PAD_X,
     ITEM_REDACTION_PAD_X,
     ITEM_REDACTION_PAD_Y,
     WORD_REDACTION_PAD_X,
@@ -106,6 +109,15 @@ def expand_item_rect(rect: fitz.Rect) -> fitz.Rect:
         rect.y0 - ITEM_REDACTION_PAD_Y,
         rect.x1 + ITEM_REDACTION_PAD_X,
         rect.y1 + ITEM_REDACTION_PAD_Y,
+    )
+
+
+def expand_image_page_item_rect(rect: fitz.Rect) -> fitz.Rect:
+    return fitz.Rect(
+        rect.x0 - IMAGE_ITEM_REDACTION_PAD_X,
+        rect.y0 - IMAGE_ITEM_REDACTION_PAD_TOP_Y,
+        rect.x1 + IMAGE_ITEM_REDACTION_PAD_X,
+        rect.y1 + IMAGE_ITEM_REDACTION_PAD_BOTTOM_Y,
     )
 
 

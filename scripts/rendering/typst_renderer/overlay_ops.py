@@ -7,14 +7,28 @@ import fitz
 
 from config import fonts
 from config import paths
+from rendering.background_image_route import replace_background_image_page
 from rendering.pdf_overlay import redact_translated_text_areas
 from rendering.pdf_overlay import strip_page_links
+from rendering.pdf_overlay_parts.redaction_analysis import page_has_large_background_image
 from rendering.render_payloads import prepare_render_payloads_by_page
 from rendering.typst_renderer.compiler import compile_typst_book_overlay_pdf
 from rendering.typst_renderer.sanitize import compile_overlay_pdf_resilient
 from rendering.typst_renderer.sanitize import sanitize_page_specs_for_typst_book_overlay
 from rendering.typst_renderer.shared import default_compile_workers
 from rendering.typst_renderer.shared import prepare_typst_work_dir
+
+
+def _mark_image_page_overlay_mode(page: fitz.Page, translated_items: list[dict]) -> list[dict]:
+    if not translated_items:
+        return translated_items
+    if not page_has_large_background_image(page):
+        return translated_items
+    return translated_items
+
+
+def _should_redact_source_page(page: fitz.Page) -> bool:
+    return not page_has_large_background_image(page)
 
 
 def overlay_translated_items_on_page(
@@ -29,7 +43,11 @@ def overlay_translated_items_on_page(
     temp_root: Path | None = None,
     cover_only: bool = False,
 ) -> None:
-    redact_translated_text_areas(page, translated_items, cover_only=cover_only)
+    translated_items = _mark_image_page_overlay_mode(page, translated_items)
+    if _should_redact_source_page(page):
+        redact_translated_text_areas(page, translated_items, cover_only=cover_only)
+    else:
+        replace_background_image_page(page, translated_items)
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
     work_dir = prepare_typst_work_dir(base_dir, "single-page", stem)
@@ -120,7 +138,10 @@ def _overlay_pages_from_single_pdf(
             )
             page = doc[page_idx]
             strip_page_links(page)
-            redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
+            if _should_redact_source_page(page):
+                redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
+            else:
+                replace_background_image_page(page, translated_pages[page_idx])
             page.show_pdf_page(page.rect, overlay_doc, overlay_page_idx, overlay=True)
     finally:
         overlay_doc.close()
@@ -171,7 +192,10 @@ def _overlay_pages_via_page_fallback(
         )
         page = doc[page_idx]
         strip_page_links(page)
-        redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
+        if _should_redact_source_page(page):
+            redact_translated_text_areas(page, translated_pages[page_idx], cover_only=cover_only)
+        else:
+            replace_background_image_page(page, translated_pages[page_idx])
         overlay_doc = fitz.open(overlay_paths[page_idx])
         try:
             page.show_pdf_page(page.rect, overlay_doc, 0, overlay=True)
@@ -196,6 +220,9 @@ def overlay_translated_pages_on_doc(
     ordered_page_indices = sorted(page_idx for page_idx in translated_pages if 0 <= page_idx < len(doc))
     if not ordered_page_indices:
         return
+
+    for page_idx in ordered_page_indices:
+        translated_pages[page_idx] = _mark_image_page_overlay_mode(doc[page_idx], translated_pages[page_idx])
 
     page_specs: list[tuple[int, float, float, list[dict], str]] = []
     for overlay_idx, page_idx in enumerate(ordered_page_indices):

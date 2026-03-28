@@ -106,7 +106,7 @@ def _build_typst_block(block_id: str, block: RenderBlock) -> str:
 
 def _build_cover_rect(block_id: str, block: RenderBlock) -> str:
     rect_name = f"{block_id.replace('-', '_')}_cover"
-    x0, y0, x1, y1 = block.bbox
+    x0, y0, x1, y1 = block.cover_bbox
     width = max(8.0, x1 - x0)
     height = max(8.0, y1 - y0)
     return (
@@ -142,7 +142,9 @@ def build_typst_book_overlay_source(
         render_blocks = build_render_blocks(translated_items, page_width=page_width, page_height=page_height)
         lines.append(f"#set page(width: {page_width}pt, height: {page_height}pt, margin: 0pt)")
         for index, block in enumerate(render_blocks):
-            lines.append(_build_typst_block(f"p{page_index}_{block.block_id}_{index}", block))
+            block_id = f"p{page_index}_{block.block_id}_{index}"
+            lines.append(_build_cover_rect(block_id, block))
+            lines.append(_build_typst_block(block_id, block))
         if page_index + 1 < len(page_specs):
             lines.append("#pagebreak()")
 

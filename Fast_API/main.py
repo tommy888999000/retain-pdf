@@ -241,7 +241,7 @@ async def upload_mineru_case(
     base_url: str = Form("https://api.deepseek.com/v1"),
     render_mode: str = Form("auto"),
     compile_workers: int = Form(0),
-    typst_font_family: str = Form("Noto Serif CJK SC"),
+    typst_font_family: str = Form("Source Han Serif SC"),
     pdf_compress_dpi: int = Form(200),
     start_page: int = Form(0),
     end_page: int = Form(-1),

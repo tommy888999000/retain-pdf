@@ -57,7 +57,7 @@ def resolve_translation_workers(workers: int, *, base_url: str, model: str) -> i
     if workers > 0:
         return workers
     if _is_deepseek_endpoint(base_url, model):
-        return 50
+        return 100
     return 4
 
 
@@ -74,7 +74,7 @@ class TranslationRenderParams(BaseModel):
     start_page: int = Field(default=0, ge=0, description="Zero-based start page index.")
     end_page: int = Field(default=-1, description="Zero-based end page index; -1 means the last page.")
     batch_size: int = Field(default=1, ge=1, description="Number of text items per translation batch.")
-    workers: int = Field(default=0, ge=0, description="Concurrent translation requests. 0 means auto: DeepSeek=50, local-compatible APIs=4.")
+    workers: int = Field(default=0, ge=0, description="Concurrent translation requests. 0 means auto: DeepSeek=100, local-compatible APIs=4.")
     mode: Literal["fast", "precise", "sci"] = Field(default="sci", description="Translation mode.")
     skip_title_translation: bool = Field(default=False, description="Skip title blocks.")
     classify_batch_size: int = Field(default=12, ge=1, description="Classification batch size.")
@@ -88,7 +88,7 @@ class TranslationRenderParams(BaseModel):
         description="Rendering mode.",
     )
     compile_workers: int = Field(default=0, ge=0, description="Parallel Typst compilation workers; 0 means auto.")
-    typst_font_family: str = Field(default="Noto Serif CJK SC", description="Base Typst font family.")
+    typst_font_family: str = Field(default="Source Han Serif SC", description="Base Typst font family.")
     pdf_compress_dpi: int = Field(default=200, ge=0, description="Final PDF image downsample DPI; 0 disables post-compression.")
     output_dir: str = Field(default="", description="Translation output directory under output/.")
     output: str = Field(default="", description="Output PDF filename under output/.")

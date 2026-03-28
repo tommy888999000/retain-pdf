@@ -20,11 +20,7 @@ def save_optimized_pdf(doc: fitz.Document, output_pdf_path: Path) -> None:
 
 
 def strip_page_links(page: fitz.Page) -> None:
-    for link in page.get_links():
-        try:
-            page.delete_link(link)
-        except Exception:
-            continue
+    return
 
 
 def page_has_editable_text(page: fitz.Page) -> bool:

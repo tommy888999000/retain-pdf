@@ -13,6 +13,8 @@ from rendering.pdf_overlay_parts.redaction_analysis import (
     page_should_use_cover_only,
     page_should_use_cover_only_count,
 )
+from rendering.pdf_overlay_parts.redaction_geometry import expand_image_page_item_rect
+from rendering.pdf_overlay_parts.redaction_geometry import expand_item_rect
 from rendering.pdf_overlay_parts.redaction_fill import (
     apply_prepared_background_covers,
     draw_background_covers,
@@ -24,13 +26,28 @@ from rendering.pdf_overlay_parts.redaction_fill import (
 from rendering.pdf_overlay_parts.shared import iter_valid_translated_items
 
 
+def _iter_valid_redaction_items(
+    translated_items: list[dict],
+    *,
+    image_page: bool = False,
+) -> list[tuple[fitz.Rect, dict, str]]:
+    redaction_items: list[tuple[fitz.Rect, dict, str]] = []
+    for rect, item, translated_text in iter_valid_translated_items(translated_items):
+        expanded = expand_image_page_item_rect(rect) if image_page else expand_item_rect(rect)
+        if expanded.is_empty:
+            continue
+        redaction_items.append((expanded, item, translated_text))
+    return redaction_items
+
+
 def redact_translated_text_areas(
     page: fitz.Page,
     translated_items: list[dict],
     fill_background: bool | None = None,
     cover_only: bool = False,
 ) -> None:
-    valid_items = iter_valid_translated_items(translated_items)
+    image_page = page_has_large_background_image(page)
+    valid_items = _iter_valid_redaction_items(translated_items, image_page=image_page)
     if not valid_items:
         return
 
@@ -38,7 +55,7 @@ def redact_translated_text_areas(
         draw_flat_white_covers(page, [rect for rect, _item, _translated_text in valid_items])
         return
 
-    if page_has_large_background_image(page):
+    if image_page:
         rects = [rect for rect, _item, _translated_text in valid_items]
         prepared_covers = prepare_background_covers(page, rects)
         for rect in rects:

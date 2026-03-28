@@ -6,9 +6,13 @@ import fitz
 
 from rendering.pdf_overlay_parts.redaction_config import (
     COVER_COMPLEXITY_BRIGHTNESS_SPREAD,
+    COVER_LIGHT_BG_MEDIAN_MIN,
+    COVER_LIGHT_BG_P90_MIN,
     COVER_MIN_SAMPLE_PIXELS,
     COVER_SAMPLE_MARGIN_PT,
     COVER_SAMPLE_SCALE,
+    COVER_TEXT_CONTAMINATION_DARK_RATIO,
+    COVER_TEXT_CONTAMINATION_DARK_VALUE,
 )
 from rendering.pdf_overlay_parts.redaction_geometry import rect_area
 
@@ -75,6 +79,19 @@ def _brightness_spread(pixels: list[tuple[int, int, int]]) -> int:
         return 255
     brightness = sorted(int((r + g + b) / 3) for r, g, b in pixels)
     return quantile(brightness, 9, 10) - quantile(brightness, 1, 10)
+
+
+def _looks_like_text_contaminated_light_patch(pixels: list[tuple[int, int, int]]) -> bool:
+    if not pixels:
+        return False
+    brightness = sorted(int((r + g + b) / 3) for r, g, b in pixels)
+    median = quantile(brightness, 1, 2)
+    p90 = quantile(brightness, 9, 10)
+    if median < COVER_LIGHT_BG_MEDIAN_MIN or p90 < COVER_LIGHT_BG_P90_MIN:
+        return False
+    dark_pixels = sum(1 for value in brightness if value < COVER_TEXT_CONTAMINATION_DARK_VALUE)
+    dark_ratio = dark_pixels / max(len(brightness), 1)
+    return dark_ratio >= COVER_TEXT_CONTAMINATION_DARK_RATIO
 
 
 def sample_local_background_fill(page: fitz.Page, rect: fitz.Rect) -> tuple[float, float, float]:
@@ -169,6 +186,8 @@ def prepare_background_cover(page: fitz.Page, rect: fitz.Rect) -> PreparedBackgr
             continue
         pixels = _pixmap_rgb_pixels(pix)
         if len(pixels) < COVER_MIN_SAMPLE_PIXELS:
+            continue
+        if _looks_like_text_contaminated_light_patch(pixels):
             continue
         spread = _brightness_spread(pixels)
         # Prefer low-complexity neighboring strips; large spreads usually mean
