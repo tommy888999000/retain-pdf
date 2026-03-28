@@ -244,6 +244,119 @@ def _translate_single_item_plain_text(
     return {item["item_id"]: _result_entry("translate", translated_text)}
 
 
+def _translate_single_item_plain_text_with_retries(
+    item: dict,
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+    mode: str = "fast",
+) -> dict[str, dict[str, str]]:
+    last_error: Exception | None = None
+    for attempt in range(1, 5):
+        started = time.perf_counter()
+        try:
+            if request_label:
+                print(
+                    f"{request_label}: plain-text attempt {attempt}/4 item={item['item_id']}",
+                    flush=True,
+                )
+            result = _translate_single_item_plain_text(
+                item,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                request_label=f"{request_label} req#{attempt}" if request_label else "",
+                domain_guidance=domain_guidance,
+            )
+            result = _canonicalize_batch_result([item], result)
+            _validate_batch_result([item], result)
+            if request_label:
+                elapsed = time.perf_counter() - started
+                print(f"{request_label}: plain-text ok in {elapsed:.2f}s", flush=True)
+            return result
+        except SuspiciousKeepOriginError as exc:
+            last_error = exc
+            if request_label:
+                elapsed = time.perf_counter() - started
+                print(
+                    f"{request_label}: unexpected keep_origin after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            if attempt >= 4:
+                raise
+            time.sleep(min(8, 2 * attempt))
+        except (ValueError, KeyError, json.JSONDecodeError) as exc:
+            last_error = exc
+            if request_label:
+                elapsed = time.perf_counter() - started
+                print(
+                    f"{request_label}: plain-text parse failed attempt {attempt}/4 after {elapsed:.2f}s: {type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+            if attempt >= 4:
+                raise
+            time.sleep(min(8, 2 * attempt))
+
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("Plain-text translation failed without an exception.")
+
+
+def _translate_items_plain_text(
+    batch: list[dict],
+    api_key: str = "",
+    model: str = "deepseek-chat",
+    base_url: str = "https://api.deepseek.com/v1",
+    request_label: str = "",
+    domain_guidance: str = "",
+    mode: str = "fast",
+) -> dict[str, dict[str, str]]:
+    cached_result, uncached_batch = split_cached_batch(
+        batch,
+        model=model,
+        base_url=base_url,
+        domain_guidance=domain_guidance,
+        mode=mode,
+    )
+    if request_label and cached_result:
+        print(
+            f"{request_label}: plain-text cache hit {len(cached_result)}/{len(batch)}",
+            flush=True,
+        )
+    if not uncached_batch:
+        return cached_result
+
+    merged = dict(cached_result)
+    total_items = len(uncached_batch)
+    for index, item in enumerate(uncached_batch, start=1):
+        item_label = (
+            f"{request_label} item {index}/{total_items} {item['item_id']}"
+            if request_label
+            else ""
+        )
+        result = _translate_single_item_plain_text_with_retries(
+            item,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            request_label=item_label,
+            domain_guidance=domain_guidance,
+            mode=mode,
+        )
+        store_cached_batch(
+            [item],
+            result,
+            model=model,
+            base_url=base_url,
+            domain_guidance=domain_guidance,
+            mode=mode,
+        )
+        merged.update(result)
+    return merged
+
+
 def _translate_single_item_with_decision(
     item: dict,
     api_key: str = "",
@@ -303,6 +416,17 @@ def translate_batch(
     domain_guidance: str = "",
     mode: str = "fast",
 ) -> dict[str, dict[str, str]]:
+    if mode != "sci":
+        return _translate_items_plain_text(
+            batch,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            request_label=request_label,
+            domain_guidance=domain_guidance,
+            mode=mode,
+        )
+
     cached_result, uncached_batch = split_cached_batch(
         batch,
         model=model,

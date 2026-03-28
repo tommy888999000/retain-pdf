@@ -10,6 +10,8 @@ from .formula_protection import re_protect_restored_formulas
 def _default_translation_flags(block_type: str) -> tuple[str, bool, str]:
     if block_type == "image_body":
         return "skip_image_body", False, "skip_image_body"
+    if block_type == "code_body":
+        return "code", False, "code"
     return "", True, ""
 
 
@@ -154,7 +156,7 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
         if "skip_reason" not in record:
             record["skip_reason"] = skip_reason
             changed = True
-        if item.block_type == "image_body":
+        if item.block_type in {"image_body", "code_body"}:
             if record.get("classification_label") != classification_label:
                 record["classification_label"] = classification_label
                 changed = True

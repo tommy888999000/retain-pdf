@@ -238,6 +238,16 @@ def draw_white_covers(page: fitz.Page, rects: list[fitz.Rect]) -> None:
         shape.commit(overlay=True)
 
 
+def draw_flat_white_covers(page: fitz.Page, rects: list[fitz.Rect]) -> None:
+    if not rects:
+        return
+    for rect in rects:
+        shape = page.new_shape()
+        shape.draw_rect(rect)
+        shape.finish(color=None, fill=(1, 1, 1))
+        shape.commit(overlay=True)
+
+
 def draw_background_covers(page: fitz.Page, rects: list[fitz.Rect]) -> None:
     if not rects:
         return

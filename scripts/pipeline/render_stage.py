@@ -9,7 +9,8 @@ from config import runtime
 from pipeline.render_mode import resolve_effective_render_mode
 from pipeline.translation_loader import load_translated_pages
 from pipeline.translation_loader import select_translated_pages
-from rendering.pdf_compress import compress_pdf_with_ghostscript
+from rendering.pdf_compress import build_image_compressed_pdf_copy
+from rendering.pdf_compress import compress_pdf_images_only
 from rendering.pdf_overlay import apply_translated_items_to_page
 from rendering.pdf_overlay import save_optimized_pdf
 from rendering.pdf_overlay import strip_page_links
@@ -21,6 +22,23 @@ from rendering.typst_page_renderer import overlay_translated_pages_on_doc
 from rendering.typst_renderer.shared import default_typst_temp_root
 
 
+def _prepare_render_source_pdf(
+    *,
+    source_pdf_path: Path,
+    output_pdf_path: Path,
+    pdf_compress_dpi: int,
+) -> tuple[Path, Path | None]:
+    if pdf_compress_dpi <= 0:
+        return source_pdf_path, None
+    compressed_source_path = output_pdf_path.parent.parent / "typst" / f"{output_pdf_path.stem}.source-compressed.pdf"
+    if build_image_compressed_pdf_copy(source_pdf_path, compressed_source_path, dpi=pdf_compress_dpi):
+        print(f"render source pdf: using compressed copy {compressed_source_path}", flush=True)
+        return compressed_source_path, compressed_source_path
+    compressed_source_path.unlink(missing_ok=True)
+    print("render source pdf: source image compression skipped", flush=True)
+    return source_pdf_path, None
+
+
 def render_translated_pages_map(
     *,
     source_pdf_path: Path,
@@ -29,7 +47,12 @@ def render_translated_pages_map(
     pdf_compress_dpi: int = runtime.DEFAULT_PDF_COMPRESS_DPI,
     strip_links: bool = False,
 ) -> int:
-    doc = fitz.open(source_pdf_path)
+    render_source_pdf_path, temp_source_path = _prepare_render_source_pdf(
+        source_pdf_path=source_pdf_path,
+        output_pdf_path=output_pdf_path,
+        pdf_compress_dpi=pdf_compress_dpi,
+    )
+    doc = fitz.open(render_source_pdf_path)
     try:
         render_pages_map = prepare_render_payloads_by_page(translated_pages_map)
         page_indexes = sorted(translated_pages_map)
@@ -47,14 +70,9 @@ def render_translated_pages_map(
         save_optimized_pdf(doc, output_pdf_path)
     finally:
         doc.close()
-    compress_pdf_with_ghostscript(
-        output_pdf_path,
-        dpi=pdf_compress_dpi,
-        source_pdf_path=source_pdf_path,
-        render_mode="overlay",
-        start_page=page_indexes[0] if page_indexes else 0,
-        end_page=page_indexes[-1] if page_indexes else -1,
-    )
+        if temp_source_path is not None:
+            temp_source_path.unlink(missing_ok=True)
+    compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
     return len(translated_pages_map)
 
 
@@ -78,131 +96,105 @@ def build_book_from_translations(
     start = max(0, start_page)
     stop = max(translated_pages) if end_page < 0 else end_page
     selected_pages = select_translated_pages(translated_pages, start_page=start, end_page=stop)
+    render_source_pdf_path, temp_source_path = _prepare_render_source_pdf(
+        source_pdf_path=source_pdf_path,
+        output_pdf_path=output_pdf_path,
+        pdf_compress_dpi=pdf_compress_dpi,
+    )
 
-    if render_mode == "dual":
-        build_dual_book_pdf(
-            source_pdf_path=source_pdf_path,
-            output_pdf_path=output_pdf_path,
-            translated_pages=selected_pages,
-            start_page=start,
-            end_page=stop,
-            compile_workers=compile_workers,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            font_family=typst_font_family,
-            cover_only=False,
-        )
-        compress_pdf_with_ghostscript(
-            output_pdf_path,
-            dpi=pdf_compress_dpi,
-            source_pdf_path=source_pdf_path,
-            render_mode="dual",
-            start_page=start,
-            end_page=stop,
-        )
-        return len(selected_pages)
-
-    if render_mode in {"compact", "direct", "overlay"}:
-        if render_mode in {"compact", "direct"}:
-            print(f"render mode '{render_mode}' is deprecated; using typst overlay instead", flush=True)
-        build_book_typst_pdf(
-            source_pdf_path=source_pdf_path,
-            output_pdf_path=output_pdf_path,
-            translated_pages=selected_pages,
-            compile_workers=compile_workers,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            font_family=typst_font_family,
-            cover_only=False,
-        )
-        compress_pdf_with_ghostscript(
-            output_pdf_path,
-            dpi=pdf_compress_dpi,
-            source_pdf_path=source_pdf_path,
-            render_mode="overlay",
-            start_page=start,
-            end_page=stop,
-        )
-        return len(selected_pages)
-
-    if render_mode == "typst":
-        print("typst background render selected", flush=True)
-        build_book_typst_background_pdf(
-            source_pdf_path=source_pdf_path,
-            output_pdf_path=output_pdf_path,
-            translated_pages=selected_pages,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            font_family=typst_font_family,
-        )
-        compress_pdf_with_ghostscript(
-            output_pdf_path,
-            dpi=pdf_compress_dpi,
-            source_pdf_path=source_pdf_path,
-            render_mode="typst",
-            start_page=start,
-            end_page=stop,
-        )
-        return len(selected_pages)
-
-    if extract_selected_pages:
-        source_doc = fitz.open(source_pdf_path)
-        temp_doc = fitz.open()
-        try:
-            temp_doc.insert_pdf(source_doc, from_page=start, to_page=stop)
-            remapped_pages = {
-                page_idx - start: items
-                for page_idx, items in selected_pages.items()
-            }
-            overlay_translated_pages_on_doc(
-                temp_doc,
-                remapped_pages,
-                stem="book-overlay",
+    try:
+        if render_mode == "dual":
+            build_dual_book_pdf(
+                source_pdf_path=render_source_pdf_path,
+                output_pdf_path=output_pdf_path,
+                translated_pages=selected_pages,
+                start_page=start,
+                end_page=stop,
                 compile_workers=compile_workers,
                 api_key=api_key,
                 model=model,
                 base_url=base_url,
                 font_family=typst_font_family,
-                temp_root=default_typst_temp_root(output_pdf_path),
                 cover_only=False,
             )
-            save_optimized_pdf(temp_doc, output_pdf_path)
-        finally:
-            temp_doc.close()
-            source_doc.close()
-        compress_pdf_with_ghostscript(
-            output_pdf_path,
-            dpi=pdf_compress_dpi,
-            source_pdf_path=source_pdf_path,
-            render_mode="overlay",
-            start_page=start,
-            end_page=stop,
-        )
-        return stop - start + 1
+            compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+            return len(selected_pages)
 
-    build_book_typst_pdf(
-        source_pdf_path=source_pdf_path,
-        output_pdf_path=output_pdf_path,
-        translated_pages=selected_pages,
-        compile_workers=compile_workers,
-        api_key=api_key,
-        model=model,
-        base_url=base_url,
-        font_family=typst_font_family,
-        cover_only=False,
-    )
-    compress_pdf_with_ghostscript(
-        output_pdf_path,
-        dpi=pdf_compress_dpi,
-        source_pdf_path=source_pdf_path,
-        render_mode="overlay",
-        start_page=start,
-        end_page=stop,
-    )
-    return len(selected_pages)
+        if render_mode in {"compact", "direct", "overlay"}:
+            if render_mode in {"compact", "direct"}:
+                print(f"render mode '{render_mode}' is deprecated; using typst overlay instead", flush=True)
+            build_book_typst_pdf(
+                source_pdf_path=render_source_pdf_path,
+                output_pdf_path=output_pdf_path,
+                translated_pages=selected_pages,
+                compile_workers=compile_workers,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                font_family=typst_font_family,
+                cover_only=False,
+            )
+            compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+            return len(selected_pages)
+
+        if render_mode == "typst":
+            print("typst background render selected", flush=True)
+            build_book_typst_background_pdf(
+                source_pdf_path=render_source_pdf_path,
+                output_pdf_path=output_pdf_path,
+                translated_pages=selected_pages,
+                api_key=api_key,
+                model=model,
+                base_url=base_url,
+                font_family=typst_font_family,
+            )
+            compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+            return len(selected_pages)
+
+        if extract_selected_pages:
+            source_doc = fitz.open(render_source_pdf_path)
+            temp_doc = fitz.open()
+            try:
+                temp_doc.insert_pdf(source_doc, from_page=start, to_page=stop)
+                remapped_pages = {
+                    page_idx - start: items
+                    for page_idx, items in selected_pages.items()
+                }
+                overlay_translated_pages_on_doc(
+                    temp_doc,
+                    remapped_pages,
+                    stem="book-overlay",
+                    compile_workers=compile_workers,
+                    api_key=api_key,
+                    model=model,
+                    base_url=base_url,
+                    font_family=typst_font_family,
+                    temp_root=default_typst_temp_root(output_pdf_path),
+                    cover_only=False,
+                )
+                save_optimized_pdf(temp_doc, output_pdf_path)
+            finally:
+                temp_doc.close()
+                source_doc.close()
+            compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+            return stop - start + 1
+
+        build_book_typst_pdf(
+            source_pdf_path=render_source_pdf_path,
+            output_pdf_path=output_pdf_path,
+            translated_pages=selected_pages,
+            compile_workers=compile_workers,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            font_family=typst_font_family,
+            cover_only=False,
+        )
+        compress_pdf_images_only(output_pdf_path, dpi=pdf_compress_dpi)
+        return len(selected_pages)
+    finally:
+        if temp_source_path is not None:
+            temp_source_path.unlink(missing_ok=True)
 
 
 def build_book_pipeline(

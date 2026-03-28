@@ -180,6 +180,14 @@ def collect_page_drawing_rects(page: fitz.Page) -> list[fitz.Rect]:
     return rects
 
 
+def page_drawing_count(page: fitz.Page) -> int:
+    try:
+        drawings = page.get_cdrawings() if hasattr(page, "get_cdrawings") else page.get_drawings()
+    except Exception:
+        return 0
+    return len(drawings)
+
+
 def page_has_large_background_image(
     page: fitz.Page,
     *,
@@ -231,6 +239,14 @@ def page_should_use_cover_only(drawing_rects: list[fitz.Rect]) -> bool:
 
 def page_is_vector_heavy(drawing_rects: list[fitz.Rect]) -> bool:
     return len(drawing_rects) >= VECTOR_HEAVY_PAGE_DRAWINGS_THRESHOLD
+
+
+def page_should_use_cover_only_count(drawing_count: int) -> bool:
+    return drawing_count >= HEAVY_VECTOR_PAGE_DRAWINGS_THRESHOLD
+
+
+def page_is_vector_heavy_count(drawing_count: int) -> bool:
+    return drawing_count >= VECTOR_HEAVY_PAGE_DRAWINGS_THRESHOLD
 
 
 def item_should_use_cover_only(rect: fitz.Rect, drawing_rects: list[fitz.Rect]) -> bool:

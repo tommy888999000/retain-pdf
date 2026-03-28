@@ -73,7 +73,7 @@
 - `font_fit.py`
   字号、行距、容量估算相关工具。
 - `pdf_compress.py`
-  PDF 后处理压缩工具。
+  PDF 后处理压缩工具。当前默认策略是只重压 PDF 内嵌的 raster 图片对象，不去全局重写可编辑文字和矢量对象；Ghostscript 只保留为可选工具，不再作为主路径默认后处理。
 - `math_utils.py`
   markdown、纯文本和公式格式化工具。
 - `math_casebook.py`

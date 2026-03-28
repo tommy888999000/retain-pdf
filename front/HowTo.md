@@ -97,55 +97,55 @@
 
 ## 4. 当前后端接口契约
 
-普通前端主流程只需要这 4 个接口：
+普通前端主流程只需要这 5 个接口：
 
 - `GET /health`
   健康检查。
-- `POST /v1/uploads/pdf`
+- `POST /api/v1/uploads`
   先上传 PDF，返回 `upload_id`、文件名、页数、大小。
-- `POST /v1/run-uploaded-mineru-case`
+- `POST /api/v1/jobs`
   用 `upload_id` 启动完整任务。
-- `GET /v1/jobs/{job_id}`
+- `GET /api/v1/jobs/{job_id}`
   查询任务状态，前端轮询这个接口。
-- `GET /v1/jobs/{job_id}/download`
+- `POST /api/v1/jobs/{job_id}/cancel`
+  取消当前任务。
+- `GET /api/v1/jobs/{job_id}/download`
   下载 ZIP。
-
-开发人员面板可额外用：
-
-- `GET /v1/rule-profiles`
-- `GET /v1/rule-profiles/{name}`
 
 ## 5. 前端必须消费的关键字段
 
-`GET /v1/jobs/{job_id}` 里这些字段要用起来：
+`GET /api/v1/jobs/{job_id}` 里这些字段要用起来：
 
 - `job_id`
 - `status`
-- `created_at`
-- `updated_at`
-- `started_at`
-- `finished_at`
+- `timestamps.created_at`
+- `timestamps.updated_at`
+- `timestamps.started_at`
+- `timestamps.finished_at`
+- `timestamps.duration_seconds`
 - `stage`
 - `stage_detail`
-- `progress_current`
-- `progress_total`
+- `progress.current`
+- `progress.total`
 - `error`
 - `log_tail`
 - `artifacts`
+- `actions`
 
 其中：
 
-- 普通用户重点看 `status`、`stage_detail`、`progress_current/progress_total`
-- “查询 / 下载”区域重点看 `finished_at`
-- “用时”可直接用 `finished_at - started_at`
+- 普通用户重点看 `status`、`stage_detail`、`progress.current/progress.total`
+- “查询 / 下载”区域重点看 `timestamps.finished_at`
+- 下载和打开动作优先直接使用 `actions.*`
+- “用时”优先直接使用 `timestamps.duration_seconds`
 - `log_tail` 只给开发人员看
 
 ## 6. 端口与服务说明
 
 当前项目已经在用/默认开放的端口如下：
 
-- `40000`
-  主后端 FastAPI，监听 `0.0.0.0:40000`
+- `41000`
+  主后端 Rust API，监听 `0.0.0.0:41000`
 - `40001`
   当前静态前端预览服务，监听 `0.0.0.0:40001`
 - `10001`
@@ -201,4 +201,4 @@
 
 ## 10. 给前端专家的一句话总结
 
-这是一个以“上传 PDF -> 异步跑任务 -> 轮询状态 -> 下载结果”为主链路的科研工具前端。普通用户界面必须极简，开发参数必须隐藏，状态可视化要强，接口基于 `40000` 的 FastAPI，当前静态前端跑在 `40001`，本地模型调试口是 `10001`。
+这是一个以“上传 PDF -> 异步跑任务 -> 轮询状态 -> 下载结果”为主链路的科研工具前端。普通用户界面必须极简，开发参数必须隐藏，状态可视化要强，接口基于 `41000` 的 Rust API，当前静态前端跑在 `40001`，本地模型调试口是 `10001`。

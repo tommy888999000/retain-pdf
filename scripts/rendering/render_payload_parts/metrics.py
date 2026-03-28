@@ -130,7 +130,7 @@ def fit_translated_block_metrics(
     visual_lines = visual_line_count(item)
 
     if item.get("_is_body_text_candidate", False) and page_body_font_size_pt is not None:
-        floor_gap = 0.75 if heavy_dense_small_box else (0.5 if dense_small_box else 0.22)
+        floor_gap = 0.58 if heavy_dense_small_box else (0.34 if dense_small_box else 0.12)
         font_size_pt = round(max(font_size_pt, page_body_font_size_pt - floor_gap), 2)
     if demand <= 0:
         return font_size_pt, leading_em
@@ -141,25 +141,33 @@ def fit_translated_block_metrics(
 
     aggressive_fit = (
         heavy_dense_small_box
-        or (dense_small_box and capacity > 0 and demand > capacity * 1.02)
-        or (capacity > 0 and demand > capacity * (AGGRESSIVE_DEMAND_RATIO + 0.06))
-        or layout_density >= LAYOUT_DENSITY_SAFE_MAX + (0.04 if dense_small_box else AGGRESSIVE_LAYOUT_DENSITY_MARGIN)
+        or (
+            dense_small_box
+            and capacity > 0
+            and demand > capacity * 1.04
+            and layout_density >= LAYOUT_DENSITY_SAFE_MAX + 0.03
+        )
+        or (
+            capacity > 0
+            and demand > capacity * (AGGRESSIVE_DEMAND_RATIO + 0.1)
+            and layout_density >= LAYOUT_DENSITY_SAFE_MAX + AGGRESSIVE_LAYOUT_DENSITY_MARGIN
+        )
     )
     best_font = font_size_pt
     best_leading = leading_em
 
     if item.get("_is_body_text_candidate", False):
-        max_steps = 6 if aggressive_fit else (3 if is_dense_block else 2)
+        max_steps = 4 if aggressive_fit else (2 if is_dense_block else 1)
     else:
-        max_steps = 7 if aggressive_fit else (5 if is_dense_block else 4)
+        max_steps = 6 if aggressive_fit else (4 if is_dense_block else 3)
     min_font = max(
-        8.8 if dense_small_box or is_dense_block else 9.0,
-        (page_body_font_size_pt - (0.76 if heavy_dense_small_box else 0.56 if dense_small_box else 0.28))
+        8.9 if dense_small_box or is_dense_block else 9.05,
+        (page_body_font_size_pt - (0.62 if heavy_dense_small_box else 0.4 if dense_small_box else 0.18))
         if page_body_font_size_pt is not None
-        else (8.8 if dense_small_box or is_dense_block else 9.0),
+        else (8.9 if dense_small_box or is_dense_block else 9.05),
     )
     for step in range(1, max_steps + 1):
-        candidate_font = round(max(min_font, font_size_pt - step * 0.15), 2)
+        candidate_font = round(max(min_font, font_size_pt - step * 0.12), 2)
         candidate_capacity = box_capacity_units(box, candidate_font, leading_em, visual_lines=visual_lines)
         if demand <= candidate_capacity * 0.98:
             return candidate_font, leading_em
@@ -168,15 +176,15 @@ def fit_translated_block_metrics(
     if item.get("_is_body_text_candidate", False):
         if not aggressive_fit:
             return best_font, best_leading
-        emergency_leading = round(max(0.46 if dense_small_box or is_dense_block else 0.52, leading_em - (0.1 if dense_small_box or is_dense_block else 0.06)), 2)
+        emergency_leading = round(max(0.5 if dense_small_box or is_dense_block else 0.54, leading_em - (0.05 if dense_small_box or is_dense_block else 0.03)), 2)
         emergency_min_font = max(
-            8.7 if dense_small_box or is_dense_block else 8.9,
-            (page_body_font_size_pt - (0.92 if heavy_dense_small_box else 0.72 if dense_small_box else 0.44))
+            8.85 if dense_small_box or is_dense_block else 8.95,
+            (page_body_font_size_pt - (0.7 if heavy_dense_small_box else 0.5 if dense_small_box else 0.28))
             if page_body_font_size_pt is not None
-            else (8.7 if dense_small_box or is_dense_block else 8.9),
+            else (8.85 if dense_small_box or is_dense_block else 8.95),
         )
-        for step in range(1, 9 if dense_small_box or is_dense_block else 6):
-            candidate_font = round(max(emergency_min_font, best_font - step * 0.12), 2)
+        for step in range(1, 6 if dense_small_box or is_dense_block else 4):
+            candidate_font = round(max(emergency_min_font, best_font - step * 0.1), 2)
             candidate_capacity = box_capacity_units(box, candidate_font, emergency_leading, visual_lines=visual_lines)
             if demand <= candidate_capacity * 0.98:
                 return candidate_font, emergency_leading
@@ -208,10 +216,10 @@ def fit_block_to_vertical_limit(
     layout_density = layout_density_ratio(inner, protected_text, font_size_pt=font_size_pt, line_step_pt=line_step)
     is_dense_block = length_density_ratio >= COMPACT_TRIGGER_RATIO or layout_density >= LAYOUT_COMPACT_TRIGGER_RATIO
     is_body = bool(item.get("_is_body_text_candidate", False))
-    min_font = 8.8 if is_dense_block else 9.0
+    min_font = 8.95 if is_dense_block else 9.05
     if is_body and page_body_font_size_pt is not None:
-        min_font = min(min_font, page_body_font_size_pt - 0.8)
-    min_font = max(7.6, min_font)
+        min_font = min(min_font, page_body_font_size_pt - 0.5)
+    min_font = max(8.2, min_font)
 
     best_font = font_size_pt
     best_leading = leading_em
@@ -219,11 +227,40 @@ def fit_block_to_vertical_limit(
         if estimated_height <= max_height_pt * 1.01:
             return round(best_font, 2), round(best_leading, 2)
         if best_font > min_font:
-            best_font = max(min_font, best_font - (0.14 if is_dense_block else 0.12))
-        elif best_leading > (0.5 if is_body else 0.28):
-            best_leading = max((0.5 if is_body else 0.28), best_leading - 0.02)
+            best_font = max(min_font, best_font - (0.1 if is_dense_block else 0.08))
+        elif best_leading > (0.54 if is_body else 0.3):
+            best_leading = max((0.54 if is_body else 0.3), best_leading - 0.01)
         else:
             break
         estimated_height = estimated_render_height_pt(inner, protected_text, formula_map, best_font, best_leading)
+
+    overflow_ratio = estimated_height / max(max_height_pt, 1.0)
+    if overflow_ratio > 1.02:
+        severe_overflow = overflow_ratio > 1.22
+        extreme_overflow = overflow_ratio > 1.5
+        compressed_leading_boost = 1.10
+        floor_leading = 0.5 if is_body else 0.28
+        if is_dense_block:
+            floor_leading = 0.46 if is_body else 0.24
+        if severe_overflow:
+            floor_leading = min(floor_leading, 0.28 if is_body else 0.22)
+        if extreme_overflow:
+            floor_leading = min(floor_leading, 0.18 if is_body else 0.16)
+        floor_leading = min(leading_em, floor_leading * compressed_leading_boost)
+        dense_min_font = min_font
+        if is_body and page_body_font_size_pt is not None:
+            dense_min_font = max(6.6, min(dense_min_font, page_body_font_size_pt - (2.0 if severe_overflow else 1.2)))
+        else:
+            dense_min_font = max(6.4, dense_min_font - (1.8 if severe_overflow else 1.0))
+        for _ in range(18):
+            if estimated_height <= max_height_pt * 1.01:
+                break
+            # Coupled squeeze for true overflow blocks: shrink line step first,
+            # not just font size, otherwise dense paragraphs still collide.
+            if best_leading > floor_leading:
+                best_leading = max(floor_leading, best_leading - (0.05 if severe_overflow else 0.04))
+            if estimated_height > max_height_pt * 1.04 and best_font > dense_min_font:
+                best_font = max(dense_min_font, best_font - (0.18 if severe_overflow else 0.14))
+            estimated_height = estimated_render_height_pt(inner, protected_text, formula_map, best_font, best_leading)
 
     return round(best_font, 2), round(best_leading, 2)

@@ -15,8 +15,8 @@ DEFAULT_LEADING_EM = 0.40
 BODY_LEADING_MIN = 0.54
 BODY_LEADING_MAX = 0.78
 BODY_FORMULA_RATIO_MAX = 0.5
-LOCAL_BLOCK_SCALE_MIN = 0.94
-LOCAL_BLOCK_SCALE_MAX = 1.08
+LOCAL_BLOCK_SCALE_MIN = 0.97
+LOCAL_BLOCK_SCALE_MAX = 1.03
 NON_BODY_LEADING_MIN = 0.26
 NON_BODY_LEADING_MAX = 0.72
 BODY_LEADING_SIZE_ADJUST = 0.62
@@ -360,7 +360,7 @@ def estimate_font_size_pt(
         block_scale = clamp(block_line_height / page_line_height, LOCAL_BLOCK_SCALE_MIN, LOCAL_BLOCK_SCALE_MAX)
 
     page_estimate = page_font_size * block_scale * layout.BODY_FONT_SIZE_FACTOR if page_font_size > 0 else local_font
-    blended = (page_estimate * 0.72) + (local_font * 0.28)
+    blended = (page_estimate * 0.88) + (local_font * 0.12)
     return round(clamp(blended, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
 
 

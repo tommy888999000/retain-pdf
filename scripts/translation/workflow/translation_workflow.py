@@ -116,10 +116,12 @@ def translate_items_to_path(
         print(f"{label}: skipped {skip_summary['reference_zone_skipped']} reference-zone items")
 
     pending = pending_translation_items(payload)
-    batches = chunked(pending, max(1, batch_size))
+    effective_batch_size = 1 if mode != "sci" else max(1, batch_size)
+    batches = chunked(pending, effective_batch_size)
     total_batches = len(batches)
     print(
-        f"{label}: pending items={len(pending)} batches={total_batches} workers={max(1, workers)} mode={mode}",
+        f"{label}: pending items={len(pending)} batches={total_batches} workers={max(1, workers)} "
+        f"mode={mode} effective_batch_size={effective_batch_size}",
         flush=True,
     )
     if workers <= 1:

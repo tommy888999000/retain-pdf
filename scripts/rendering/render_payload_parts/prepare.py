@@ -11,6 +11,7 @@ from rendering.render_payload_parts.metrics import box_capacity_units
 from rendering.render_payload_parts.metrics import text_demand_units
 from rendering.render_payload_parts.shared import same_meaningful_render_text
 from rendering.render_payload_parts.shared import split_protected_text_for_boxes
+from rendering.render_payload_parts.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
 
 
 def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> dict[int, list[dict]]:
@@ -100,5 +101,31 @@ def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> 
         for item, chunk in zip(items, chunks):
             item["render_protected_text"] = chunk
             item["render_formula_map"] = unit_formula_map
+
+    suspicious_total = 0
+    for page_idx, items in prepared.items():
+        page_font_size, page_line_pitch, page_line_height, density_baseline, page_text_width_med = page_metrics[page_idx]
+        summary = detect_and_drop_suspicious_ocr_glued_blocks(
+            items,
+            page_idx=page_idx,
+            page_font_size=page_font_size,
+            page_line_pitch=page_line_pitch,
+            page_line_height=page_line_height,
+            density_baseline=density_baseline,
+            page_text_width_med=page_text_width_med,
+        )
+        suspicious_total += summary["count"]
+        for hit in summary["hits"]:
+            print(
+                "render skip suspicious OCR-glued block "
+                f"page={hit['page_idx'] + 1} item={hit['item_id']} next={hit['next_item_id']} "
+                f"chars={hit['source_chars']} chars_per_pt={hit['char_height_ratio']:.2f} "
+                f"gap={hit['source_gap_pt']:.1f} overlap={hit['width_overlap_ratio']:.3f} "
+                f"est={hit['estimated_height_pt']:.1f} allowed={hit['allowed_height_pt']:.1f} "
+                f"overflow={hit['overflow_ratio']:.2f}",
+                flush=True,
+            )
+    if suspicious_total:
+        print(f"render skip suspicious OCR-glued blocks total={suspicious_total}", flush=True)
 
     return prepared

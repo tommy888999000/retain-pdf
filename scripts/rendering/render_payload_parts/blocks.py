@@ -37,22 +37,22 @@ from rendering.render_payload_parts.shared import translation_density_ratio
 
 BODY_DENSITY_TARGET_MIN = 0.82
 BODY_DENSITY_TARGET_MAX = 0.92
-BODY_PRESSURE_TIGHTEN_TRIGGER = 1.18
-BODY_PRESSURE_TIGHTEN_TRIGGER_HIGH = 1.1
-BODY_FINAL_FORCE_FIT_DENSITY = 1.03
+BODY_PRESSURE_TIGHTEN_TRIGGER = 1.24
+BODY_PRESSURE_TIGHTEN_TRIGGER_HIGH = 1.16
+BODY_FINAL_FORCE_FIT_DENSITY = 1.05
 BODY_FINAL_FORCE_FIT_NON_HEAVY_EXTRA_MARGIN = 0.04
 BODY_FINAL_VERTICAL_TARGET_RATIO = 0.9
 SMALL_PAGE_BOX_RATIO = 0.06
 ULTRA_SMALL_PAGE_BOX_RATIO = 0.04
 SMALL_BOX_GROW_DENSITY_TRIGGER = 0.88
-SMALL_BOX_GROW_FONT_GAP = 0.12
+SMALL_BOX_GROW_FONT_GAP = 0.1
 SMALL_BOX_GROW_STEP = 0.22
 SMALL_BOX_GROW_ELIGIBLE_MAX_DENSITY = 1.02
 SMALL_BOX_GROW_MAX_DENSITY = 1.03
 VERTICAL_COLLISION_MIN_WIDTH_OVERLAP_RATIO = 0.6
 VERTICAL_COLLISION_SOURCE_GAP_TRIGGER_PT = 5.0
-VERTICAL_COLLISION_DENSITY_TRIGGER = 0.96
-VERTICAL_COLLISION_OVERFLOW_TRIGGER = 1.08
+VERTICAL_COLLISION_DENSITY_TRIGGER = 0.99
+VERTICAL_COLLISION_OVERFLOW_TRIGGER = 1.12
 
 
 def _page_box_area_ratio(bbox: list[float], page_width: float | None, page_height: float | None) -> float:
@@ -113,8 +113,8 @@ def build_render_blocks(
         dense_small_box = density_ratio >= 0.9 and 0 < page_box_area_ratio <= SMALL_PAGE_BOX_RATIO
         heavy_dense_small_box = density_ratio >= 1.0 and 0 < page_box_area_ratio <= ULTRA_SMALL_PAGE_BOX_RATIO
         if body_flags.get(index) and page_body_font_size_pt is not None:
-            down_band = 0.62 if heavy_dense_small_box else (0.42 if dense_small_box else 0.18)
-            up_band = 0.22 if dense_small_box else 0.34
+            down_band = 0.5 if heavy_dense_small_box else (0.28 if dense_small_box else 0.1)
+            up_band = 0.18 if dense_small_box else 0.24
             font_size_pt = round(min(max(font_size_pt, page_body_font_size_pt - down_band), page_body_font_size_pt + up_band), 2)
         if dense_small_box and not body_flags.get(index):
             font_size_pt = round(font_size_pt * COMPACT_SCALE, 2)
@@ -198,7 +198,7 @@ def build_render_blocks(
         body_pressure_median = median(body_pressure_values) if body_pressure_values else 0.0
 
         for payload in body_payloads:
-            payload["font_size_pt"] = round(min(max(payload["font_size_pt"], body_font_median - 0.18), body_font_median + 0.18), 2)
+            payload["font_size_pt"] = round(min(max(payload["font_size_pt"], body_font_median - 0.12), body_font_median + 0.12), 2)
             inner_height = max(8.0, payload["inner_bbox"][3] - payload["inner_bbox"][1])
             inner_width = max(8.0, payload["inner_bbox"][2] - payload["inner_bbox"][0])
             demand = text_demand_units(payload["translated_text"], payload["formula_map"])
@@ -213,10 +213,10 @@ def build_render_blocks(
             )
             density = estimated_height / inner_height
             pressure_trigger = BODY_PRESSURE_TIGHTEN_TRIGGER_HIGH if density > body_density_target + 0.03 else BODY_PRESSURE_TIGHTEN_TRIGGER
-            if pressure_ratio > pressure_trigger and (payload["dense_small_box"] or density > body_density_target + 0.03):
-                steps = min(4, max(1, ceil((pressure_ratio - pressure_trigger) / 0.22)))
-                payload["font_size_pt"] = round(max(body_font_median - 0.48, payload["font_size_pt"] - steps * 0.1), 2)
-                payload["leading_em"] = round(min(BODY_LEADING_MAX, payload["leading_em"] + 0.015 * min(steps, 3)), 2)
+            if pressure_ratio > pressure_trigger and payload["dense_small_box"] and density > body_density_target + 0.04:
+                steps = min(3, max(1, ceil((pressure_ratio - pressure_trigger) / 0.26)))
+                payload["font_size_pt"] = round(max(body_font_median - 0.34, payload["font_size_pt"] - steps * 0.08), 2)
+                payload["leading_em"] = round(min(BODY_LEADING_MAX, payload["leading_em"] + 0.01 * min(steps, 2)), 2)
                 estimated_height = estimated_render_height_pt(
                     payload["inner_bbox"],
                     payload["translated_text"],
@@ -225,8 +225,8 @@ def build_render_blocks(
                     payload["leading_em"],
                 )
                 density = estimated_height / inner_height
-            if (payload["heavy_dense_small_box"] and density > body_density_target + 0.02) or density > body_density_target + 0.08 or (
-                density > body_density_target + 0.04 and pressure_ratio > BODY_PRESSURE_TIGHTEN_TRIGGER_HIGH
+            if (payload["heavy_dense_small_box"] and density > body_density_target + 0.04) or density > body_density_target + 0.1 or (
+                density > body_density_target + 0.06 and payload["dense_small_box"] and pressure_ratio > BODY_PRESSURE_TIGHTEN_TRIGGER_HIGH
             ):
                 font_size_pt, leading_em = fit_block_to_vertical_limit(
                     {**payload["item"], "_is_body_text_candidate": True},
@@ -239,9 +239,9 @@ def build_render_blocks(
                 )
                 payload["font_size_pt"] = font_size_pt
                 payload["leading_em"] = leading_em
-            elif density < body_density_target - 0.12 and pressure_ratio < 0.96:
+            elif density < body_density_target - 0.12 and pressure_ratio < 0.94:
                 steps = min(2, max(1, ceil((body_density_target - density) / 0.12)))
-                payload["font_size_pt"] = round(min(body_font_median + 0.12, payload["font_size_pt"] + steps * 0.06), 2)
+                payload["font_size_pt"] = round(min(body_font_median + 0.08, payload["font_size_pt"] + steps * 0.04), 2)
 
         # Final page-level correction: force dense outliers down, then pull obviously small blocks back toward the page band.
         body_font_median = median(payload["font_size_pt"] for payload in body_payloads)
@@ -288,11 +288,11 @@ def build_render_blocks(
             eligible_max_density = SMALL_BOX_GROW_ELIGIBLE_MAX_DENSITY if payload["dense_small_box"] else 0.9
             if density >= eligible_max_density:
                 continue
-            grow_font_gap = SMALL_BOX_GROW_FONT_GAP if payload["dense_small_box"] else 0.28
+            grow_font_gap = SMALL_BOX_GROW_FONT_GAP if payload["dense_small_box"] else 0.2
             if payload["font_size_pt"] >= body_font_median - grow_font_gap:
                 continue
-            candidate_step = SMALL_BOX_GROW_STEP if payload["dense_small_box"] and density <= SMALL_BOX_GROW_DENSITY_TRIGGER else 0.18
-            candidate_cap = body_font_median - 0.18
+            candidate_step = SMALL_BOX_GROW_STEP if payload["dense_small_box"] and density <= SMALL_BOX_GROW_DENSITY_TRIGGER else 0.12
+            candidate_cap = body_font_median - 0.12
             candidate_font = round(min(candidate_cap, payload["font_size_pt"] + candidate_step), 2)
             candidate_height = estimated_render_height_pt(
                 payload["inner_bbox"],
@@ -372,11 +372,11 @@ def build_render_blocks(
             shared_leading = round((prev_payload["leading_em"] + next_payload["leading_em"]) / 2.0, 2)
             for payload in (prev_payload, next_payload):
                 payload["font_size_pt"] = round(
-                    min(max(payload["font_size_pt"], shared_font - 0.12), shared_font + 0.12),
+                    min(max(payload["font_size_pt"], shared_font - 0.08), shared_font + 0.08),
                     2,
                 )
                 payload["leading_em"] = round(
-                    min(max(payload["leading_em"], shared_leading - 0.04), shared_leading + 0.04),
+                    min(max(payload["leading_em"], shared_leading - 0.03), shared_leading + 0.03),
                     2,
                 )
 
@@ -411,6 +411,8 @@ def build_render_blocks(
             continue
         if estimated_height <= max_height_pt * VERTICAL_COLLISION_OVERFLOW_TRIGGER:
             continue
+        original_font_size = current["font_size_pt"]
+        original_leading = current["leading_em"]
         font_size_pt, leading_em = fit_block_to_vertical_limit(
             {**current["item"], "_is_body_text_candidate": current["is_body"]},
             current["translated_text"],
@@ -420,8 +422,8 @@ def build_render_blocks(
             max_height_pt,
             page_body_font_size_pt=current["page_body_font_size_pt"],
         )
-        current["font_size_pt"] = font_size_pt
-        current["leading_em"] = leading_em
+        current["font_size_pt"] = max(font_size_pt, round(original_font_size - 0.08, 2))
+        current["leading_em"] = max(leading_em, round(original_leading - 0.02, 2))
 
     for payload in sorted(block_payloads, key=lambda payload: payload["index"]):
         blocks.append(

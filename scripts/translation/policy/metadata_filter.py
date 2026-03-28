@@ -30,15 +30,21 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
 LETTER_RE = re.compile(r"[A-Za-z]")
 SHORT_ALPHA_FRAGMENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9._/-]{0,7}$")
 SECTION_MARKER_START_RE = re.compile(r"^(?:\(|\[)?(?:\d+(?:\.\d+)*|[A-Za-z])(?:\)|\]|\.)\s+|^[•\-*]\s+")
-NAME_LIKE_TOKEN_RE = re.compile(r"\b[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}\b")
+NAME_LIKE_TOKEN_RE = re.compile(r"\b(?:[A-Z]\.\s*)?[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}(?:\s+[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]{1,}){0,3}\b")
 ADDRESS_WORD_RE = re.compile(
     r"\b(platz|street|st\.|road|rd\.|avenue|ave\.|campus|building|room|suite|postal|postfach|germany|france|spain|italy|uk|u\.k\.|usa|u\.s\.a\.|denmark|sweden|norway|finland|japan|korea)\b",
+    re.I,
+)
+PROSE_CUE_RE = re.compile(
+    r"\b(a|an|the|this|that|these|those|is|are|was|were|be|been|being|has|have|had|do|does|did|can|could|may|might|must|should|would|will|our|their|its|during|through|within|than|therefore|however|furthermore|because|while|where|which|whose|investigate|exhibits|discovered|properties|synthesis|processing|susceptible|compared)\b",
     re.I,
 )
 URL_LIKE_RE = re.compile(
     r"^(?:(?:https?://|ftp://|www\.)\S+|(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:/[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]*)?)$",
     re.I,
 )
+WORD_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ0-9]+(?:[.'`´/-][A-Za-zÀ-ÖØ-öø-ÿ0-9]+)*")
+MAX_METADATA_FRAGMENT_WORDS = 9
 
 
 def _normalized_text(item: dict) -> str:
@@ -47,6 +53,10 @@ def _normalized_text(item: dict) -> str:
 
 def _line_count(item: dict) -> int:
     return len(item.get("lines", []))
+
+
+def _word_count(text: str) -> int:
+    return len(WORD_TOKEN_RE.findall(text))
 
 
 def _comma_count(text: str) -> int:
@@ -65,7 +75,8 @@ def _looks_like_editorial_metadata(text: str) -> bool:
 def _looks_like_author_or_affiliation(text: str) -> bool:
     upper_name_tokens = len(ALL_CAPS_TOKEN_RE.findall(text))
     initial_names = len(INITIAL_NAME_RE.findall(text))
-    name_like_tokens = len(NAME_LIKE_TOKEN_RE.findall(text))
+    author_segments = _author_like_segments(text)
+    name_like_tokens = sum(1 for segment in author_segments if segment)
     comma_count = _comma_count(text)
     if AUTHOR_MARKER_RE.search(text) and (_comma_count(text) >= 1 or initial_names >= 1 or upper_name_tokens >= 2):
         return True
@@ -75,9 +86,9 @@ def _looks_like_author_or_affiliation(text: str) -> bool:
         return True
     if upper_name_tokens >= 4 and _comma_count(text) >= 1 and len(text) <= 360:
         return True
-    if name_like_tokens >= 4 and comma_count >= 2 and len(text) <= 420:
+    if author_segments and not PROSE_CUE_RE.search(text) and name_like_tokens >= 4 and comma_count >= 2 and len(text) <= 420:
         return True
-    if name_like_tokens >= 8 and comma_count >= 4 and len(text) <= 520:
+    if author_segments and not PROSE_CUE_RE.search(text) and name_like_tokens >= 8 and comma_count >= 4 and len(text) <= 520:
         return True
     if AFFILIATION_RE.search(text) and len(text) <= 160 and _comma_count(text) == 0:
         return True
@@ -88,6 +99,29 @@ def _looks_like_author_or_affiliation(text: str) -> bool:
     if EMAIL_RE.search(text):
         return True
     return False
+
+
+def _author_like_segments(text: str) -> list[str]:
+    if "." in text and "., " not in text and "et al." not in text:
+        # Full-sentence prose is much more likely than an author list.
+        return []
+    segments = [segment.strip() for segment in re.split(r",|;|\band\b", text) if segment.strip()]
+    author_like: list[str] = []
+    for segment in segments:
+        if len(segment) > 80:
+            continue
+        if PROSE_CUE_RE.search(segment):
+            continue
+        words = [word for word in re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿ.'`´-]+", segment) if word]
+        if not 1 <= len(words) <= 6:
+            continue
+        if not all(re.fullmatch(r"(?:[A-Z]\.)|(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'`´.-]+)", word) for word in words):
+            continue
+        capitalized = sum(1 for word in words if word[:1].isupper())
+        if capitalized < max(1, len(words) - 1):
+            continue
+        author_like.append(segment)
+    return author_like
 
 
 def _looks_like_copyright_or_journal_line(text: str) -> bool:
@@ -132,6 +166,8 @@ def should_skip_metadata_fragment(item: dict) -> bool:
 
     text = _normalized_text(item)
     if not text:
+        return False
+    if _word_count(text) > MAX_METADATA_FRAGMENT_WORDS:
         return False
 
     if len(text) <= 16 and _looks_like_standalone_connector(text):

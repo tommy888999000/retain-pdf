@@ -7,12 +7,16 @@ from rendering.pdf_overlay_parts.redaction_analysis import (
     item_has_removable_text,
     page_has_large_background_image,
     item_should_use_cover_only,
+    page_drawing_count,
     page_is_vector_heavy,
+    page_is_vector_heavy_count,
     page_should_use_cover_only,
+    page_should_use_cover_only_count,
 )
 from rendering.pdf_overlay_parts.redaction_fill import (
     apply_prepared_background_covers,
     draw_background_covers,
+    draw_flat_white_covers,
     prepare_background_covers,
     draw_white_covers,
     resolved_fill_color,
@@ -31,7 +35,7 @@ def redact_translated_text_areas(
         return
 
     if cover_only:
-        draw_white_covers(page, [rect for rect, _item, _translated_text in valid_items])
+        draw_flat_white_covers(page, [rect for rect, _item, _translated_text in valid_items])
         return
 
     if page_has_large_background_image(page):
@@ -47,8 +51,12 @@ def redact_translated_text_areas(
         apply_prepared_background_covers(page, prepared_covers)
         return
 
-    drawing_rects = collect_page_drawing_rects(page)
-    if fill_background is None and page_is_vector_heavy(drawing_rects):
+    drawing_count = page_drawing_count(page)
+    if fill_background is None and page_should_use_cover_only_count(drawing_count):
+        draw_flat_white_covers(page, [rect for rect, _item, _translated_text in valid_items])
+        return
+
+    if fill_background is None and page_is_vector_heavy_count(drawing_count):
         rects = [rect for rect, _item, _translated_text in valid_items]
         draw_white_covers(page, rects)
         for rect in rects:
@@ -60,6 +68,7 @@ def redact_translated_text_areas(
         )
         return
 
+    drawing_rects = collect_page_drawing_rects(page)
     if fill_background is None and page_should_use_cover_only(drawing_rects):
         draw_white_covers(page, [rect for rect, _item, _translated_text in valid_items])
         return

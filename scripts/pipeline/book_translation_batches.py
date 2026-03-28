@@ -60,10 +60,15 @@ def translate_pending_units(
                 unit_to_pages.setdefault(unit_id, set()).add(page_idx)
 
     pending = pending_translation_items(flat_payload)
-    batches = chunked(pending, max(1, batch_size))
+    effective_batch_size = 1 if mode != "sci" else max(1, batch_size)
+    batches = chunked(pending, effective_batch_size)
     total_batches = len(batches)
     flush_interval = _save_flush_interval(workers=workers, total_batches=total_batches)
-    print(f"book: pending items={len(pending)} batches={total_batches} workers={max(1, workers)}", flush=True)
+    print(
+        f"book: pending items={len(pending)} batches={total_batches} workers={max(1, workers)} "
+        f"mode={mode} effective_batch_size={effective_batch_size}",
+        flush=True,
+    )
     if total_batches:
         print(f"book: save flush interval={flush_interval} batches", flush=True)
     if workers <= 1:

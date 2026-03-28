@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="page">
+    <main class="page lab-ui">
       <header class="hero">
         <div>
           <h1>保留排版翻译 by wxyhgk</h1>
@@ -36,17 +36,17 @@
       <section class="panel-grid">
         <section class="card panel">
           <h2>提交</h2>
-          <p class="muted">常驻界面只保留运行所需的两个密钥。普通用户上传限制为 10MB / 30 页，目前仅建议上传 sci 论文 PDF，其它参数放在开发入口。</p>
+          <p class="muted">普通用户上传限制为 10MB / 30 页，目前仅建议上传 sci 论文 PDF。默认直接使用站点内置服务凭证；如果你想改用自己的 MinerU / 模型 key，可直接在这里覆盖。</p>
           <div id="job-warning" class="job-warning hidden">检测到上一个任务还未完成。建议先等待当前任务结束，避免重复提交。</div>
           <form id="job-form" class="form">
             <div class="grid two">
               <label>
                 <span>MinerU API key</span>
-                <input id="mineru_token" name="mineru_token" type="password" value="" autocomplete="off" placeholder="留空则使用服务端默认" />
+                <input id="mineru_token" name="mineru_token" type="password" value="" autocomplete="off" placeholder="留空则使用内置默认" />
               </label>
               <label>
-                <span>DeepSeek API key</span>
-                <input id="api_key" name="api_key" type="password" value="" autocomplete="off" placeholder="留空则使用服务端默认" />
+                <span>Model API key</span>
+                <input id="api_key" name="api_key" type="password" value="" autocomplete="off" placeholder="留空则使用内置默认" />
               </label>
             </div>
 
@@ -78,13 +78,16 @@
         <section class="card panel">
           <div class="status-head simple-head">
             <h2>状态</h2>
-            <button id="stop-btn" type="button" class="secondary">停止轮询</button>
+            <div class="status-head-actions">
+              <button id="cancel-btn" type="button" class="secondary" disabled>取消任务</button>
+              <button id="stop-btn" type="button" class="secondary">停止轮询</button>
+            </div>
           </div>
 
-          <div class="status-stack">
+          <div class="status-stack dense two">
             <div>
               <div class="label">任务号</div>
-              <div id="job-id" class="mono">-</div>
+              <div id="job-id" class="mono clamp-text">-</div>
             </div>
             <div>
               <div class="label">状态</div>
@@ -92,11 +95,11 @@
             </div>
             <div>
               <div class="label">状态摘要</div>
-              <div id="job-summary" class="summary-text">等待提交任务</div>
+              <div id="job-summary" class="summary-text clamp-text">等待提交任务</div>
             </div>
             <div>
               <div class="label">当前提示</div>
-              <div id="job-stage-detail" class="summary-text">-</div>
+              <div id="job-stage-detail" class="summary-text clamp-text">-</div>
             </div>
           </div>
 
@@ -164,7 +167,7 @@
 
         <section class="card panel">
           <h2>查询 / 下载</h2>
-          <p class="muted">输入已有任务号可继续查看，成功后直接下载 ZIP。</p>
+          <p class="muted">输入已有任务号可继续查看。成功后可直接打开 PDF、Markdown 或下载 ZIP。</p>
 
           <div class="form">
             <label>
@@ -172,9 +175,12 @@
               <input id="job-id-input" type="text" placeholder="粘贴已有 job_id" />
             </label>
 
-            <div class="actions vertical-actions">
+            <div class="actions action-matrix">
               <button id="watch-btn" class="secondary" type="button">查询任务</button>
               <a id="download-btn" class="button-link disabled" href="#" target="_blank" rel="noopener noreferrer">下载结果 ZIP</a>
+              <a id="pdf-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">打开译文 PDF</a>
+              <a id="markdown-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">查看 Markdown JSON</a>
+              <a id="markdown-raw-btn" class="button-link secondary disabled" href="#" target="_blank" rel="noopener noreferrer">下载 Markdown</a>
             </div>
 
             <div class="status-meta-row top-gap">
@@ -324,6 +330,7 @@
       </form>
     </dialog>
 
+    <script src="./runtime-config.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>
