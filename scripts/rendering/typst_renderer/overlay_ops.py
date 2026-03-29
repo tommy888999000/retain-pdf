@@ -60,6 +60,7 @@ def overlay_translated_items_on_page(
         model=model,
         base_url=base_url,
         font_family=font_family,
+        include_cover_rect=False,
         font_paths=font_paths,
         work_dir=work_dir,
     )
@@ -79,6 +80,7 @@ def _compile_overlay_with_fallback(
     model: str = "",
     base_url: str = "",
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = False,
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
 ) -> Path:
@@ -94,6 +96,7 @@ def _compile_overlay_with_fallback(
         model=model,
         base_url=base_url,
         font_family=font_family,
+        include_cover_rect=include_cover_rect,
         font_paths=font_paths,
         work_dir=work_dir,
     )
@@ -103,6 +106,7 @@ def _compile_book_overlay_with_fallback(
     page_specs: list[tuple[float, float, list[dict]]],
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = False,
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
 ) -> Path:
@@ -116,6 +120,7 @@ def _compile_book_overlay_with_fallback(
         page_specs,
         stem=stem,
         font_family=font_family,
+        include_cover_rect=include_cover_rect,
         font_paths=font_paths,
         work_dir=work_dir,
     )

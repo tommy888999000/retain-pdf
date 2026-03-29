@@ -13,6 +13,7 @@ from .deepseek_client import request_chat_content
 from translation.policy.metadata_filter import looks_like_nontranslatable_metadata
 from translation.policy.metadata_filter import looks_like_url_fragment
 from translation.policy.metadata_filter import should_skip_metadata_fragment
+from translation.policy.soft_hints import looks_like_code_literal_text_value
 
 
 PLACEHOLDER_RE = re.compile(r"\[\[FORMULA_\d+]]")
@@ -416,6 +417,8 @@ def _looks_like_english_prose(text: str) -> bool:
     cleaned = _strip_placeholders(text).strip()
     if not cleaned:
         return False
+    if looks_like_code_literal_text_value(cleaned):
+        return False
     if "@" in cleaned or "http://" in cleaned or "https://" in cleaned or looks_like_url_fragment(cleaned):
         return False
     if _looks_like_reference_entry(cleaned):
@@ -461,6 +464,8 @@ def _looks_like_garbled_fragment(text: str) -> bool:
 def _should_force_translate_body_text(item: dict) -> bool:
     source_text = _unit_source_text(item).strip()
     if not source_text:
+        return False
+    if looks_like_code_literal_text_value(source_text):
         return False
     if should_skip_metadata_fragment(item):
         return False
@@ -554,6 +559,8 @@ def _validate_batch_result(batch: list[dict], result: dict[str, dict[str, str]])
             if _looks_like_reference_entry(source_text):
                 continue
             if looks_like_nontranslatable_metadata(item):
+                continue
+            if looks_like_code_literal_text_value(source_text):
                 continue
             if _looks_like_english_prose(source_text):
                 raise ValueError(f"{item_id}: translation unchanged from English source")

@@ -252,6 +252,7 @@ def sanitize_items_for_typst_compile(
     model: str = "",
     base_url: str = "",
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
 ) -> list[dict]:
@@ -263,6 +264,7 @@ def sanitize_items_for_typst_compile(
             translated_items,
             stem=stem,
             font_family=font_family,
+            include_cover_rect=include_cover_rect,
             font_paths=font_paths,
             work_dir=work_dir,
         )
@@ -277,6 +279,7 @@ def sanitize_items_for_typst_compile(
                     [translated_items[index]],
                     stem=f"{stem}-probe-{index:03d}",
                     font_family=font_family,
+                    include_cover_rect=include_cover_rect,
                     font_paths=font_paths,
                     work_dir=work_dir,
                 )
@@ -295,6 +298,7 @@ def sanitize_items_for_typst_compile(
                     patched_items,
                     stem=f"{stem}-selective-strip",
                     font_family=font_family,
+                    include_cover_rect=include_cover_rect,
                     font_paths=font_paths,
                     work_dir=work_dir,
                 )
@@ -318,6 +322,7 @@ def sanitize_items_for_typst_compile(
                         llm_patched_items,
                         stem=f"{stem}-selective-llm",
                         font_family=font_family,
+                        include_cover_rect=include_cover_rect,
                         font_paths=font_paths,
                         work_dir=work_dir,
                     )
@@ -335,6 +340,7 @@ def sanitize_items_for_typst_compile(
                     patched_items,
                     stem=f"{stem}-selective-plain",
                     font_family=font_family,
+                    include_cover_rect=include_cover_rect,
                     font_paths=font_paths,
                     work_dir=work_dir,
                 )
@@ -351,6 +357,7 @@ def sanitize_items_for_typst_compile(
             patched_items,
             stem=f"{stem}-plain",
             font_family=font_family,
+            include_cover_rect=include_cover_rect,
             font_paths=font_paths,
             work_dir=work_dir,
         )
@@ -366,6 +373,7 @@ def compile_overlay_pdf_resilient(
     model: str = "",
     base_url: str = "",
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
 ) -> Path:
@@ -379,6 +387,7 @@ def compile_overlay_pdf_resilient(
         model=model,
         base_url=base_url,
         font_family=font_family,
+        include_cover_rect=include_cover_rect,
         font_paths=font_paths,
         work_dir=work_dir,
     )
@@ -388,6 +397,7 @@ def compile_overlay_pdf_resilient(
         sanitized_items,
         stem=f"{stem}-final",
         font_family=font_family,
+        include_cover_rect=include_cover_rect,
         font_paths=font_paths,
         work_dir=work_dir,
     )
@@ -415,6 +425,7 @@ def sanitize_page_specs_for_typst_book_background(
             model=model,
             base_url=base_url,
             font_family=font_family,
+            include_cover_rect=True,
             font_paths=font_paths,
             work_dir=work_dir,
         )

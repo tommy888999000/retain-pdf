@@ -26,6 +26,7 @@ def compile_typst_overlay_pdf(
     translated_items: list[dict],
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
 ) -> Path:
@@ -34,7 +35,13 @@ def compile_typst_overlay_pdf(
     typ_path = work_dir / f"{stem}.typ"
     pdf_path = work_dir / f"{stem}.pdf"
     typ_path.write_text(
-        build_typst_overlay_source(page_width, page_height, translated_items, font_family=font_family),
+        build_typst_overlay_source(
+            page_width,
+            page_height,
+            translated_items,
+            font_family=font_family,
+            include_cover_rect=include_cover_rect,
+        ),
         encoding="utf-8",
     )
     proc = subprocess.run(_typst_compile_command(typ_path, pdf_path, font_paths), capture_output=True, text=True)
@@ -47,6 +54,7 @@ def compile_typst_book_overlay_pdf(
     page_specs: list[tuple[float, float, list[dict]]],
     stem: str,
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
 ) -> Path:
@@ -54,7 +62,14 @@ def compile_typst_book_overlay_pdf(
     work_dir.mkdir(parents=True, exist_ok=True)
     typ_path = work_dir / f"{stem}.typ"
     pdf_path = work_dir / f"{stem}.pdf"
-    typ_path.write_text(build_typst_book_overlay_source(page_specs, font_family=font_family), encoding="utf-8")
+    typ_path.write_text(
+        build_typst_book_overlay_source(
+            page_specs,
+            font_family=font_family,
+            include_cover_rect=include_cover_rect,
+        ),
+        encoding="utf-8",
+    )
     proc = subprocess.run(_typst_compile_command(typ_path, pdf_path, font_paths), capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError((proc.stderr or proc.stdout).strip())

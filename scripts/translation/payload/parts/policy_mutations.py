@@ -67,6 +67,9 @@ def _region_contains_item(region_item: dict, item: dict) -> bool:
 
 
 def _foundational_skip_defaults(item: dict) -> tuple[str, str] | None:
+    sub_type = str((item.get("metadata") or {}).get("ocr_sub_type", "") or "").strip().lower()
+    if sub_type == "algorithm":
+        return "skip_algorithm", "skip_algorithm"
     block_type = str(item.get("block_type", "") or "")
     return _FOUNDATIONAL_SKIP_BY_BLOCK_TYPE.get(block_type)
 
@@ -113,8 +116,6 @@ def apply_shared_literal_block_policy(payload: list[dict]) -> dict[str, int]:
     code_region_skipped = 0
     image_region_skipped = 0
     translate_forced = 0
-    code_items = [item for item in payload if str(item.get("block_type", "") or "") == "code_body"]
-    image_items = [item for item in payload if str(item.get("block_type", "") or "") == "image_body"]
 
     for item in payload:
         if not item.get("should_translate", True):
@@ -129,20 +130,6 @@ def apply_shared_literal_block_policy(payload: list[dict]) -> dict[str, int]:
             item["should_translate"] = True
             item["skip_reason"] = ""
             translate_forced += 1
-
-    for item in payload:
-        if not item.get("should_translate", True):
-            continue
-        block_type = str(item.get("block_type", "") or "")
-        if block_type in {"code_body", "image_body"}:
-            continue
-        if any(_region_contains_item(code_item, item) for code_item in code_items):
-            _mark_item_skipped(item, "skip_code_region")
-            code_region_skipped += 1
-            continue
-        if any(_region_contains_item(image_item, item) for image_item in image_items):
-            _mark_item_skipped(item, "skip_image_region")
-            image_region_skipped += 1
 
     return {
         "shared_literal_code_skipped": code_skipped,
@@ -329,6 +316,7 @@ def apply_title_skip(payload: list[dict]) -> int:
             continue
         item["classification_label"] = item.get("classification_label") or "skip_title"
         item["should_translate"] = False
+        item["skip_reason"] = "skip_title"
         clear_translation_fields(item)
         skipped += 1
     return skipped

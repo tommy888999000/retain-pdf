@@ -55,11 +55,11 @@ class TranslationPolicyConfig:
 
 
 def should_skip_title_translation(mode: str, skip_title_translation: bool) -> bool:
-    return mode in {"precise", "sci"} or skip_title_translation
+    return True
 
 
 def should_apply_reference_tail_skip(mode: str) -> bool:
-    return mode == "sci"
+    return False
 
 
 def should_apply_after_last_title_cutoff(mode: str) -> bool:
@@ -75,7 +75,7 @@ def should_apply_narrow_body_noise_skip(mode: str) -> bool:
 
 
 def should_apply_metadata_fragment_skip(mode: str) -> bool:
-    return mode in {"fast", "precise", "sci"}
+    return False
 
 
 def should_apply_candidate_continuation_review() -> bool:

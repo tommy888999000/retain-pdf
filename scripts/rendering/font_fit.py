@@ -33,8 +33,13 @@ NON_BODY_LEADING_TIGHTEN_RATIO_PER_PT = 0.04
 MIN_TEXT_LINE_PITCH_PT = 10.8
 APPROX_TEXT_CHAR_WIDTH_PT = 5.2
 LOCAL_TEXTUAL_BLOCK_TYPES = {"text", "title", "image_caption", "table_caption", "table_footnote"}
+CAPTION_BLOCK_TYPES = {"image_caption", "table_caption", "table_footnote"}
 TEXT_HEIGHT_PADDING_RATIO = 0.22
 TEXT_HEIGHT_PADDING_MAX_PT = 2.2
+SOURCE_HEIGHT_LIMIT_MIN_PT = 8.0
+SOURCE_HEIGHT_LIMIT_RATIO = 1.02
+CAPTION_FONT_SCALE = 0.92
+CAPTION_MAX_FONT_SIZE_PT = 10.6
 VISUAL_LINE_COUNT_MAX = 24
 LINE_COUNT_PREDICT_TRIGGER_CHARS = 48
 LINE_COUNT_GROW_THRESHOLD = 1.12
@@ -208,7 +213,19 @@ def local_font_size_pt(item: dict) -> float:
     metric = local_line_pitch(item) or median_line_height(item)
     if metric <= 0:
         return fonts.DEFAULT_FONT_SIZE
-    return round(clamp(metric * ZH_FONT_SCALE * layout.BODY_FONT_SIZE_FACTOR, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
+    base_size = metric * ZH_FONT_SCALE * layout.BODY_FONT_SIZE_FACTOR
+    if item.get("block_type") in CAPTION_BLOCK_TYPES:
+        return round(clamp(base_size * CAPTION_FONT_SCALE, MIN_FONT_SIZE_PT, CAPTION_MAX_FONT_SIZE_PT), 2)
+    return round(clamp(base_size, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
+
+
+def source_text_height_limit_pt(item: dict) -> float:
+    text_height = effective_text_height(item)
+    if text_height <= 0:
+        text_height = bbox_height(item)
+    if text_height <= 0:
+        return 0.0
+    return max(SOURCE_HEIGHT_LIMIT_MIN_PT, min(bbox_height(item), text_height * SOURCE_HEIGHT_LIMIT_RATIO))
 
 
 def occupied_ratio(item: dict) -> float:
@@ -445,6 +462,8 @@ def estimate_font_size_pt(
     blended = (page_estimate * page_weight) + (local_font * local_weight)
     if compactness > 0:
         blended *= 1.0 - min(BODY_COMPACT_FONT_SCALE_MAX, compactness * 0.055)
+    if item.get("block_type") in CAPTION_BLOCK_TYPES:
+        blended = min(blended * CAPTION_FONT_SCALE, CAPTION_MAX_FONT_SIZE_PT)
     return round(clamp(blended, MIN_FONT_SIZE_PT, MAX_FONT_SIZE_PT), 2)
 
 

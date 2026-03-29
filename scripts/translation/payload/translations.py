@@ -7,7 +7,14 @@ from .formula_protection import protect_inline_formulas_in_segments
 from .formula_protection import re_protect_restored_formulas
 
 
-def _default_translation_flags(block_type: str) -> tuple[str, bool, str]:
+def _is_algorithm_sub_type(metadata: dict | None) -> bool:
+    value = str((metadata or {}).get("ocr_sub_type", "") or "").strip().lower()
+    return value == "algorithm"
+
+
+def _default_translation_flags(block_type: str, metadata: dict | None = None) -> tuple[str, bool, str]:
+    if _is_algorithm_sub_type(metadata):
+        return "skip_algorithm", False, "skip_algorithm"
     if block_type == "image_body":
         return "skip_image_body", False, "skip_image_body"
     if block_type == "code_body":
@@ -19,7 +26,7 @@ def export_translation_template(items: list[TextItem], output_path: Path, page_i
     payload = []
     for item in items:
         protected_source_text, formula_map = protect_inline_formulas_in_segments(item.segments)
-        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type)
+        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type, item.metadata)
         payload.append(
             {
                 "item_id": item.item_id,
@@ -93,7 +100,7 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
         item = item_map.get(record.get("item_id"))
         if not item:
             continue
-        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type)
+        classification_label, should_translate, skip_reason = _default_translation_flags(item.block_type, item.metadata)
         if (
             "protected_source_text" not in record
             or "formula_map" not in record
@@ -156,7 +163,7 @@ def ensure_translation_template(items: list[TextItem], output_path: Path, page_i
         if "skip_reason" not in record:
             record["skip_reason"] = skip_reason
             changed = True
-        if item.block_type in {"image_body", "code_body"}:
+        if item.block_type in {"image_body", "code_body"} or _is_algorithm_sub_type(item.metadata):
             if record.get("classification_label") != classification_label:
                 record["classification_label"] = classification_label
                 changed = True

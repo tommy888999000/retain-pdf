@@ -27,14 +27,15 @@ def _fit_markdown_typst_helpers() -> list[str]:
         "}",
         "#let pdftr_floor_size(value, floor) = if value < floor { floor } else { value }",
         "#let pdftr_floor_leading(value, floor) = if value < floor { floor } else { value }",
-        "#let pdftr_fit_markdown(markdown, max_size: 10pt, min_size: 9pt, max_leading: 0.66em, min_leading: 0.54em, eps: 0.08pt) = {",
+        "#let pdftr_fit_markdown(markdown, max_size: 10pt, min_size: 9pt, max_leading: 0.66em, min_leading: 0.54em, fit_height: none, eps: 0.08pt) = {",
         "  layout(size => {",
+        "    let allowed-height = if fit_height == none { size.height } else { calc.min(size.height, fit_height) }",
         "    let render(text_size, leading) = block(width: size.width)[#{",
         "      set text(size: text_size)",
         "      set par(leading: leading)",
         "      cmarker.render(markdown, math: mitex)",
         "    }]",
-        "    let fits(text_size, leading) = measure(width: size.width, render(text_size, leading)).height <= size.height",
+        "    let fits(text_size, leading) = measure(width: size.width, render(text_size, leading)).height <= allowed-height",
         "    if fits(max_size, max_leading) {",
         "      render(max_size, max_leading)",
         "    } else {",
@@ -88,9 +89,10 @@ def _build_typst_block(block_id: str, block: RenderBlock) -> str:
     if block.fit_to_box:
         fit_min_font = max(1.0, min(block.fit_min_font_size_pt or font_size, font_size))
         fit_min_leading = max(0.1, min(block.fit_min_leading_em or leading, leading))
+        fit_height = max(8.0, min(height, block.fit_max_height_pt or height))
         return (
             f'#let {markdown_name} = "{escape_typst_string(markdown)}"\n'
-            f"#let {body_name} = block(width: {width}pt, height: {height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em) }}]\n"
+            f"#let {body_name} = block(width: {width}pt, height: {height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em, fit_height: {fit_height}pt) }}]\n"
             "#context {\n"
             f"  place(top + left, dx: {x0}pt, dy: {y0}pt, {body_name})\n"
             "}"
@@ -122,13 +124,19 @@ def build_typst_overlay_source(
     page_height: float,
     translated_items: list[dict],
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
 ) -> str:
-    return build_typst_book_overlay_source([(page_width, page_height, translated_items)], font_family=font_family)
+    return build_typst_book_overlay_source(
+        [(page_width, page_height, translated_items)],
+        font_family=font_family,
+        include_cover_rect=include_cover_rect,
+    )
 
 
 def build_typst_book_overlay_source(
     page_specs: list[tuple[float, float, list[dict]]],
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
+    include_cover_rect: bool = True,
 ) -> str:
     lines = [
         f'#set text(font: "{font_family}", size: {fonts.DEFAULT_FONT_SIZE}pt)',
@@ -143,7 +151,8 @@ def build_typst_book_overlay_source(
         lines.append(f"#set page(width: {page_width}pt, height: {page_height}pt, margin: 0pt)")
         for index, block in enumerate(render_blocks):
             block_id = f"p{page_index}_{block.block_id}_{index}"
-            lines.append(_build_cover_rect(block_id, block))
+            if include_cover_rect:
+                lines.append(_build_cover_rect(block_id, block))
             lines.append(_build_typst_block(block_id, block))
         if page_index + 1 < len(page_specs):
             lines.append("#pagebreak()")

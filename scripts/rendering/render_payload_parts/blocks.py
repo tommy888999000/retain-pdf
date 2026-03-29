@@ -607,7 +607,7 @@ def build_render_blocks(
             current["adjacent_available_height_pt"] = max_height_pt
 
     for payload in sorted(block_payloads, key=lambda payload: payload["index"]):
-        fit_to_box, fit_min_font_size_pt, fit_min_leading_em = resolve_typst_binary_fit(
+        fit_to_box, fit_min_font_size_pt, fit_min_leading_em, fit_max_height_pt = resolve_typst_binary_fit(
             {
                 **payload["item"],
                 "_is_body_text_candidate": payload["is_body"],
@@ -634,9 +634,10 @@ def build_render_blocks(
                 render_kind=payload["render_kind"],
                 font_size_pt=payload["font_size_pt"],
                 leading_em=payload["leading_em"],
-                fit_to_box=fit_to_box and payload["render_kind"] == "markdown" and payload["is_body"],
+                fit_to_box=fit_to_box and payload["render_kind"] == "markdown",
                 fit_min_font_size_pt=fit_min_font_size_pt,
                 fit_min_leading_em=fit_min_leading_em,
+                fit_max_height_pt=fit_max_height_pt,
             )
         )
     return blocks

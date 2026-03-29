@@ -183,6 +183,7 @@ def _looks_like_structured_example_line(item: TextItem) -> bool:
 def _apply_page_structure(items: list[TextItem]) -> list[TextItem]:
     for item in items:
         item.metadata = {
+            **(item.metadata or {}),
             "structure_role": "body",
             "structure_group": "",
             "pair_with": "",
@@ -276,14 +277,14 @@ SKIP_BLOCK_TYPES = {
     "ref_text",
     "image",
     "image_body",
-    "image_caption",
-    "table_caption",
-    "table_footnote",
 }
 
 
-def should_translate_block(block: dict, text: str) -> bool:
+def should_translate_block(block: dict, text: str, *, inside_algorithm: bool = False) -> bool:
     block_type = block.get("type", "unknown")
+    block_sub_type = str(block.get("sub_type", "") or "").strip().lower()
+    if inside_algorithm or block_sub_type == "algorithm":
+        return False
     if block_type in SKIP_BLOCK_TYPES:
         return False
     return True
@@ -294,13 +295,14 @@ def extract_block_item(
     page_idx: int,
     block_idx: int,
     item_suffix: str = "",
+    inside_algorithm: bool = False,
 ) -> TextItem | None:
     segments = block_segments(block)
     lines = block_lines(block)
     text = merge_segments_text(segments)
     if not text:
         return None
-    if not should_translate_block(block, text):
+    if not should_translate_block(block, text, inside_algorithm=inside_algorithm):
         return None
     return TextItem(
         item_id=f"p{page_idx + 1:03d}-b{block_idx:03d}{item_suffix}",
@@ -311,7 +313,9 @@ def extract_block_item(
         text=text,
         segments=segments,
         lines=lines,
-        metadata={},
+        metadata={
+            "ocr_sub_type": str(block.get("sub_type", "") or ""),
+        },
     )
 
 
@@ -322,13 +326,25 @@ def extract_text_items(data: dict, page_idx: int) -> list[TextItem]:
 
     page = pages[page_idx]
     items: list[TextItem] = []
-    def visit_block(block: dict, block_idx: int, item_suffix: str = "") -> None:
-        item = extract_block_item(block, page_idx=page_idx, block_idx=block_idx, item_suffix=item_suffix)
+    def visit_block(block: dict, block_idx: int, item_suffix: str = "", inside_algorithm: bool = False) -> None:
+        current_inside_algorithm = inside_algorithm or (str(block.get("sub_type", "") or "").strip().lower() == "algorithm")
+        item = extract_block_item(
+            block,
+            page_idx=page_idx,
+            block_idx=block_idx,
+            item_suffix=item_suffix,
+            inside_algorithm=current_inside_algorithm,
+        )
         if item is not None:
             items.append(item)
 
         for child_idx, child in enumerate(block.get("blocks", []) or []):
-            visit_block(child, block_idx=block_idx, item_suffix=f"{item_suffix}-i{child_idx:03d}")
+            visit_block(
+                child,
+                block_idx=block_idx,
+                item_suffix=f"{item_suffix}-i{child_idx:03d}",
+                inside_algorithm=current_inside_algorithm,
+            )
 
     for block_idx, block in enumerate(page.get("para_blocks", [])):
         visit_block(block, block_idx)
