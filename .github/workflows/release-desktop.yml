@@ -196,6 +196,27 @@ jobs:
         shell: bash
         run: cargo build --release --manifest-path backend/rust_api/Cargo.toml
 
+      - name: Assemble bundled Typst runtime
+        shell: bash
+        run: |
+          typst_version="${{ env.TYPST_VERSION }}"
+          typst_url="https://github.com/typst/typst/releases/download/v${typst_version}/typst-aarch64-apple-darwin.tar.xz"
+          download_tar="$RUNNER_TEMP/typst-macos.tar.xz"
+          extract_root="$RUNNER_TEMP/typst-macos"
+          bundle_root="$PWD/backend/typst-darwin"
+          echo "Downloading Typst $typst_version from $typst_url"
+          curl -L "$typst_url" -o "$download_tar"
+          rm -rf "$extract_root" "$bundle_root"
+          mkdir -p "$extract_root" "$bundle_root/bin"
+          tar -xJf "$download_tar" -C "$extract_root"
+          typst_bin="$(find "$extract_root" -type f -name typst | head -n 1)"
+          if [ -z "$typst_bin" ]; then
+            echo "typst binary not found in downloaded archive" >&2
+            exit 1
+          fi
+          install -m 755 "$typst_bin" "$bundle_root/bin/typst"
+          ls -lah "$bundle_root/bin/typst"
+
       - name: Install qpdf build dependency
         shell: bash
         run: |

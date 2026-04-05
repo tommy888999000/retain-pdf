@@ -177,7 +177,7 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
         });
     }
 
-    if haystack.contains("typst") || haystack.contains("compile") || haystack.contains("render") {
+    if contains_render_failure_signal(&haystack) {
         return Some(JobFailureInfo {
             stage: failed_stage,
             category: "render_failed".to_string(),
@@ -191,7 +191,17 @@ pub fn classify_job_failure(job: &JobSnapshot) -> Option<JobFailureInfo> {
             last_log_line: select_relevant_log_line(
                 job,
                 error,
-                &["typst", "compile", "render", "font", "formula"],
+                &[
+                    "typst compile",
+                    "failed to compile",
+                    "compile error",
+                    "render failed",
+                    "rendering failed",
+                    "failed to render",
+                    "typst error",
+                    "font not found",
+                    "missing bundled font",
+                ],
             ),
             raw_error_excerpt: first_error_excerpt(error, &haystack),
         });
@@ -322,12 +332,17 @@ fn infer_failed_stage(job: &JobSnapshot, haystack: &str) -> String {
     let stage = job.stage.clone().unwrap_or_default();
     let stage_detail = job.stage_detail.clone().unwrap_or_default();
     let combined = format!("{stage}\n{stage_detail}\n{haystack}").to_lowercase();
-    if combined.contains("translation") || stage_detail.contains("翻译") {
-        return "translation".to_string();
-    }
-    if combined.contains("render") || combined.contains("compile") || stage_detail.contains("排版")
+
+    if stage == "rendering"
+        || stage == "render"
+        || stage_detail.contains("排版")
+        || stage_detail.contains("渲染")
+        || contains_render_failure_signal(&combined)
     {
         return "render".to_string();
+    }
+    if stage == "translation" || combined.contains("translation") || stage_detail.contains("翻译") {
+        return "translation".to_string();
     }
     if combined.contains("normaliz") || stage_detail.contains("标准化") {
         return "normalization".to_string();
@@ -340,6 +355,31 @@ fn infer_failed_stage(job: &JobSnapshot, haystack: &str) -> String {
         return "ocr".to_string();
     }
     "failed".to_string()
+}
+
+fn contains_render_failure_signal(text: &str) -> bool {
+    let lowered = text.to_lowercase();
+    if [
+        "typst compile",
+        "typst compilation",
+        "typst error",
+        "failed to compile",
+        "compile error",
+        "render failed",
+        "rendering failed",
+        "failed to render",
+        "missing bundled font",
+        "font not found",
+    ]
+    .iter()
+    .any(|pattern| lowered.contains(pattern))
+    {
+        return true;
+    }
+
+    (lowered.contains("no such file or directory")
+        || lowered.contains("the system cannot find the file specified"))
+        && (lowered.contains("typst") || lowered.contains("font"))
 }
 
 fn extract_upstream_host(haystack: &str) -> Option<String> {
@@ -378,5 +418,45 @@ mod tests {
         let failure = classify_job_failure(&job).expect("failure");
         assert_eq!(failure.category, "placeholder_unstable");
         assert_eq!(failure.stage, "translation");
+    }
+
+    #[test]
+    fn classify_job_failure_does_not_treat_render_mode_log_as_render_failure() {
+        let mut job = crate::models::JobSnapshot::new(
+            "job-failure".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.status = crate::models::JobStatusKind::Failed;
+        job.error = Some(
+            "PlaceholderInventoryError: placeholder inventory mismatch".to_string(),
+        );
+        job.stage = Some("translation".to_string());
+        job.stage_detail = Some("正在翻译".to_string());
+        job.log_tail = vec![
+            "auto render mode selected: overlay (removable_items=18, checked_items=18, removable_ratio=1.00)"
+                .to_string(),
+        ];
+
+        let failure = classify_job_failure(&job).expect("failure");
+        assert_eq!(failure.category, "placeholder_unstable");
+        assert_eq!(failure.stage, "translation");
+    }
+
+    #[test]
+    fn classify_job_failure_maps_typst_compile_error_to_render_stage() {
+        let mut job = crate::models::JobSnapshot::new(
+            "job-failure".to_string(),
+            CreateJobInput::default(),
+            vec!["python".to_string()],
+        );
+        job.status = crate::models::JobStatusKind::Failed;
+        job.error = Some("typst compile failed: font not found".to_string());
+        job.stage = Some("translation".to_string());
+        job.stage_detail = Some("正在翻译".to_string());
+
+        let failure = classify_job_failure(&job).expect("failure");
+        assert_eq!(failure.category, "render_failed");
+        assert_eq!(failure.stage, "render");
     }
 }

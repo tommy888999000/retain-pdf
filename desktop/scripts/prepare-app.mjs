@@ -11,6 +11,7 @@ const frontendRoot = path.join(repoRoot, "frontend");
 const backendRoot = path.join(repoRoot, "backend");
 const embeddedPythonRoot = path.join(backendRoot, "python");
 const typstWindowsRoot = path.join(backendRoot, "typst-win32");
+const typstDarwinRoot = path.join(backendRoot, "typst-darwin");
 const targetPlatform = process.env.RETAIN_PDF_DESKTOP_PLATFORM || process.platform;
 const appRoot = path.join(desktopRoot, "app");
 const outputFrontendRoot = path.join(appRoot, "frontend");
@@ -178,6 +179,13 @@ if ((targetPlatform === "darwin" || targetPlatform === "linux") && hasBundledPos
 
 if (targetPlatform === "win32" && fs.existsSync(typstWindowsRoot)) {
   fs.cpSync(typstWindowsRoot, path.join(outputBackendRoot, "typst"), {
+    recursive: true,
+    force: true,
+  });
+}
+
+if (targetPlatform === "darwin" && fs.existsSync(typstDarwinRoot)) {
+  fs.cpSync(typstDarwinRoot, path.join(outputBackendRoot, "typst"), {
     recursive: true,
     force: true,
   });
