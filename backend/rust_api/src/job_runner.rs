@@ -1,4 +1,3 @@
-use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Instant;
@@ -10,6 +9,9 @@ use tokio::sync::{OwnedSemaphorePermit, TryAcquireError};
 use tokio::time::{sleep, timeout, Duration};
 use tracing::{error, info};
 
+#[cfg(unix)]
+use std::io;
+
 use crate::job_events::{persist_job, record_custom_job_event};
 use crate::models::{now_iso, JobArtifacts, JobStatusKind, ProcessResult, StoredJob};
 use crate::ocr_provider::{parse_provider_kind, provider_capabilities, OcrProviderDiagnostics};
@@ -19,6 +21,7 @@ mod commands;
 mod ocr_flow;
 mod stdout_parser;
 
+#[allow(unused_imports)]
 pub(crate) use commands::{
     build_command, build_normalize_ocr_command, build_ocr_command, build_translate_from_ocr_command,
 };
@@ -346,14 +349,7 @@ async fn execute_process_job(
         .current_dir(&state.config.project_root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    unsafe {
-        command.pre_exec(|| {
-            if libc::setpgid(0, 0) != 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
-    }
+    configure_child_process(&mut command);
 
     let program = job.command.first().cloned().unwrap_or_default();
     let mut child = command
@@ -548,28 +544,63 @@ async fn is_cancel_requested_any(
 }
 
 pub async fn terminate_job_process_tree(pid: u32) -> Result<()> {
-    let pgid = pid as i32;
-    signal_process_group(pgid, libc::SIGTERM)?;
-    for _ in 0..15 {
-        if !process_group_exists(pgid) {
+    #[cfg(unix)]
+    {
+        let pgid = pid as i32;
+        signal_process_group(pgid, libc::SIGTERM)?;
+        for _ in 0..15 {
+            if !process_group_exists(pgid) {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+        signal_process_group(pgid, libc::SIGKILL)?;
+        for _ in 0..10 {
+            if !process_group_exists(pgid) {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        let status = Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .status()
+            .await
+            .context("failed to execute taskkill")?;
+        if status.success() {
             return Ok(());
         }
-        sleep(Duration::from_millis(200)).await;
+        return Err(anyhow!(
+            "taskkill failed for pid {} with status {:?}",
+            pid,
+            status.code()
+        ));
     }
-    signal_process_group(pgid, libc::SIGKILL)?;
-    for _ in 0..10 {
-        if !process_group_exists(pgid) {
-            return Ok(());
-        }
-        sleep(Duration::from_millis(100)).await;
-    }
+
+    #[allow(unreachable_code)]
     Ok(())
 }
 
-fn should_continue_after_cancel(job: &StoredJob) -> bool {
-    matches!(job.stage.as_deref(), Some("normalizing"))
+#[cfg(unix)]
+fn configure_child_process(command: &mut Command) {
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setpgid(0, 0) != 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
 }
 
+#[cfg(not(unix))]
+fn configure_child_process(_command: &mut Command) {}
+
+#[cfg(unix)]
 fn signal_process_group(pgid: i32, signal: i32) -> Result<()> {
     let rc = unsafe { libc::kill(-pgid, signal) };
     if rc == 0 {
@@ -582,12 +613,17 @@ fn signal_process_group(pgid: i32, signal: i32) -> Result<()> {
     Err(err.into())
 }
 
+#[cfg(unix)]
 fn process_group_exists(pgid: i32) -> bool {
     let rc = unsafe { libc::kill(-pgid, 0) };
     if rc == 0 {
         return true;
     }
     !matches!(io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH))
+}
+
+fn should_continue_after_cancel(job: &StoredJob) -> bool {
+    matches!(job.stage.as_deref(), Some("normalizing"))
 }
 
 fn ensure_artifacts(job: &mut StoredJob) -> &mut JobArtifacts {
