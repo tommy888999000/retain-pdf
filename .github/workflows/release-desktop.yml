@@ -1,0 +1,70 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "github.ref_name is empty"
+          }
+          $version = $tag.TrimStart("v")
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-pc-windows-msvc
+
+      - name: Build Rust API for Windows
+        shell: pwsh
+        run: cargo build --release --target i686-pc-windows-msvc --manifest-path backend/rust_api/Cargo.toml
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        shell: pwsh
+        run: npm ci
+
+      - name: Build Windows portable package
+        working-directory: desktop
+        shell: pwsh
+        run: npm run dist:win32
+
+      - name: Build Windows installer package
+        working-directory: desktop
+        shell: pwsh
+        run: npm run dist:win32-installer
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: |
+            desktop/win/RetainPDF-${{ steps.version.outputs.version }}.exe
+            desktop/win/RetainPDF-${{ steps.version.outputs.version }}-Setup.exe
+            desktop/win/RetainPDF-${{ steps.version.outputs.version }}-Setup.exe.blockmap
