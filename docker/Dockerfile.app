@@ -14,7 +14,7 @@ COPY backend/rust_api/src ./backend/rust_api/src
 WORKDIR /build/backend/rust_api
 RUN cargo build --release
 
-FROM wxyhgk/retainpdf-app:4.0.5-beta AS typstsrc
+FROM wxyhgk/retainpdf-app:4.0.6-beta AS typstsrc
 
 FROM python:3.11-slim-bookworm AS runtime
 

@@ -4,12 +4,14 @@ from pathlib import Path
 
 import fitz
 import pikepdf
+from PIL import Image
 from pikepdf import Name
 from pikepdf import Pdf
 
 from services.rendering.compress.analysis import max_display_rect_by_xref
 from services.rendering.compress.analysis import target_pixel_size
 from services.rendering.compress.image_ops import encode_image
+from services.rendering.compress.image_ops import encode_soft_mask
 from services.rendering.compress.image_ops import IMAGE_RECOMPRESS_MIN_BYTES
 from services.rendering.compress.image_ops import load_pdf_image
 from services.rendering.compress.image_ops import resize_to_target
@@ -61,6 +63,14 @@ def compress_pdf_images_only_impl(
             except Exception:
                 original_stream = b""
             original_encoded_len = len(original_stream) if original_stream else len(raw)
+            smask_obj = obj.get(Name("/SMask"))
+            original_smask_len = 0
+            if smask_obj is not None:
+                try:
+                    original_smask_stream = bytes(smask_obj.read_raw_bytes())
+                    original_smask_len = len(original_smask_stream)
+                except Exception:
+                    original_smask_len = 0
 
             should_skip, skip_reason = should_skip_recompress_image(obj, info)
             if should_skip:
@@ -77,7 +87,13 @@ def compress_pdf_images_only_impl(
             try:
                 resized = resize_to_target(image, target_width=target_width, target_height=target_height)
                 encoded, encoded_ext, encoded_colorspace = encode_image(resized)
-            except OSError as exc:
+                encoded_smask = b""
+                smask_resized = None
+                if smask_obj is not None:
+                    smask_image = load_pdf_image(smask_obj)
+                    smask_resized = smask_image.convert("L").resize(resized.size, Image.LANCZOS)
+                    encoded_smask = encode_soft_mask(smask_resized)
+            except Exception as exc:
                 skipped_broken += 1
                 print(
                     f"image-only compress: skip xref={xref} reason=broken-image-data error={type(exc).__name__}: {exc}",
@@ -88,7 +104,9 @@ def compress_pdf_images_only_impl(
             if not encoded:
                 skipped_alpha += 1
                 continue
-            if len(encoded) >= original_encoded_len:
+            original_total_len = original_encoded_len + original_smask_len
+            encoded_total_len = len(encoded) + len(encoded_smask)
+            if encoded_total_len >= original_total_len:
                 skipped_not_better += 1
                 continue
 
@@ -97,13 +115,22 @@ def compress_pdf_images_only_impl(
             obj[Name("/Height")] = resized.height
             obj[Name("/BitsPerComponent")] = 8
             obj[Name("/ColorSpace")] = Name(encoded_colorspace or "/DeviceRGB")
-            for key in ("/SMask", "/Mask", "/DecodeParms"):
+            if smask_obj is not None and smask_resized is not None:
+                smask_obj.write(encoded_smask, filter=Name("/FlateDecode"), decode_parms=None)
+                smask_obj[Name("/Width")] = smask_resized.width
+                smask_obj[Name("/Height")] = smask_resized.height
+                smask_obj[Name("/BitsPerComponent")] = 8
+                smask_obj[Name("/ColorSpace")] = Name("/DeviceGray")
+                for key in ("/Decode", "/DecodeParms"):
+                    if Name(key) in smask_obj:
+                        del smask_obj[Name(key)]
+            for key in ("/Mask", "/Decode", "/DecodeParms"):
                 if Name(key) in obj:
                     del obj[Name(key)]
             changed += 1
             print(
                 f"image-only compress: xref={xref} ->{encoded_ext} "
-                f"{original_encoded_len}->{len(encoded)} bytes size={image.size}->{resized.size}",
+                f"{original_total_len}->{encoded_total_len} bytes size={image.size}->{resized.size}",
                 flush=True,
             )
 

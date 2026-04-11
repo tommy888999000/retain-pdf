@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import zlib
 
 import pikepdf
 from PIL import Image
@@ -68,6 +69,11 @@ def encode_image(img: Image.Image) -> tuple[bytes, str, str]:
     return jpeg_bytes, "jpeg", "/DeviceRGB"
 
 
+def encode_soft_mask(img: Image.Image) -> bytes:
+    grayscale = img.convert("L")
+    return zlib.compress(grayscale.tobytes(), level=9)
+
+
 def pdf_bool(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -108,6 +114,8 @@ def should_skip_recompress_image(obj: pikepdf.Object, info: dict) -> tuple[bool,
     decode = obj.get(Name("/Decode"))
     if pdf_bool(obj.get(Name("/ImageMask"))):
         return True, "image-mask"
+    if obj.get(Name("/Mask")) is not None:
+        return True, "mask"
     if bits_per_component == 1:
         return True, "bitonal"
     if not colorspace:
