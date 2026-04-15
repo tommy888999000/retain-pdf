@@ -1,5 +1,5 @@
 import { $ } from "../../dom.js";
-import { buildFrontendPageUrl, isTrustedWindowMessage } from "../../config.js";
+import { apiBase, buildFrontendPageUrl, isTrustedWindowMessage } from "../../config.js";
 import { resolveJobActions } from "../../job.js";
 
 let pdfDocumentModulePromise = null;
@@ -118,7 +118,17 @@ function downloadBlob(blob, filename) {
 function resolveManifestArtifactUrl(manifestPayload, artifactKey) {
   const items = Array.isArray(manifestPayload?.items) ? manifestPayload.items : [];
   const item = items.find((entry) => entry?.artifact_key === artifactKey && entry?.ready);
-  return `${item?.resource_url || item?.resource_path || ""}`.trim();
+  const raw = `${item?.resource_url || item?.resource_path || ""}`.trim();
+  if (!raw) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+  if (raw.startsWith("/")) {
+    return `${apiBase()}${raw}`;
+  }
+  return `${apiBase()}/${raw.replace(/^\.?\//, "")}`;
 }
 
 function easeOutCubic(value) {

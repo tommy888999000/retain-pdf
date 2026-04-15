@@ -4,7 +4,7 @@ import {
   PDFLinkService,
   PDFViewer,
 } from "../../node_modules/pdfjs-dist/web/pdf_viewer.mjs";
-import { isMockMode, readerMessageTargetOrigin } from "./config.js";
+import { apiBase, isMockMode, readerMessageTargetOrigin } from "./config.js";
 import { $ } from "./dom.js";
 import { API_PREFIX } from "./constants.js";
 import { resolveJobActions } from "./job.js";
@@ -149,7 +149,17 @@ function findArtifact(manifestPayload, artifactKey) {
 }
 
 function resolveArtifactUrl(item) {
-  return `${item?.resource_url || item?.resource_path || ""}`.trim();
+  const raw = `${item?.resource_url || item?.resource_path || ""}`.trim();
+  if (!raw) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+  if (raw.startsWith("/")) {
+    return `${apiBase()}${raw}`;
+  }
+  return `${apiBase()}/${raw.replace(/^\.?\//, "")}`;
 }
 
 function resolveTranslatedPdfUrl(jobPayload, manifestPayload) {

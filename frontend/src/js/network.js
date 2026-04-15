@@ -24,7 +24,8 @@ export async function fetchJobPayload(jobId, apiPrefix) {
     }
     throw new Error(`读取任务失败，请稍后重试。(${resp.status})`);
   }
-  return resp.json();
+  const payloadJson = await resp.json();
+  return unwrapEnvelope(payloadJson);
 }
 
 export async function fetchJobEvents(jobId, apiPrefix, limit = 50, offset = 0) {
