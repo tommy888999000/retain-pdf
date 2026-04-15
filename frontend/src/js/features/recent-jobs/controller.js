@@ -15,6 +15,17 @@ import {
   setRecentJobsLoadMoreLoading,
 } from "./view.js";
 
+function padDatePart(value) {
+  return `${value}`.padStart(2, "0");
+}
+
+function formatDateKey(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    return "";
+  }
+  return `${date.getFullYear()}-${padDatePart(date.getMonth() + 1)}-${padDatePart(date.getDate())}`;
+}
+
 function recentJobDateKey(value) {
   const raw = `${value || ""}`.trim();
   if (!raw) {
@@ -24,11 +35,7 @@ function recentJobDateKey(value) {
   if (Number.isNaN(parsed.getTime())) {
     return "";
   }
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(parsed);
+  return formatDateKey(parsed);
 }
 
 function setDialogOpen(open) {
@@ -93,12 +100,17 @@ async function collectRecentJobsPage(fetchJobList, apiPrefix, startOffset, selec
         continue;
       }
       const dateKey = recentJobDateKey(item.updated_at || item.created_at);
-      if (!dateKey || dateKey > selectedDate) {
+      if (!dateKey) {
         continue;
       }
-      if (dateKey < selectedDate) {
-        hasMore = false;
-        break;
+      if (selectedDate) {
+        if (dateKey > selectedDate) {
+          continue;
+        }
+        if (dateKey < selectedDate) {
+          hasMore = false;
+          break;
+        }
       }
       collected.push(item);
       if (collected.length >= pageSize) {
@@ -142,7 +154,7 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
 
     try {
       const { date, offset, items: previousItems } = getRecentJobsState();
-      const selectedDate = date || new Date().toLocaleDateString("en-CA");
+      const selectedDate = `${date || ""}`.trim();
       const pageSize = 5;
       const {
         collected,
@@ -160,7 +172,7 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
       if (reset && collected.length === 0) {
         setRecentJobsItems([]);
         setRecentJobsHasMore(false);
-        renderRecentJobsEmpty("所选日期暂无任务", latestInvocationSummary);
+        renderRecentJobsEmpty(selectedDate ? "所选日期暂无任务" : "暂无最近任务", latestInvocationSummary);
         return;
       }
       if (!reset && collected.length === 0) {
@@ -196,10 +208,6 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
   }
 
   function openRecentJobsDialog() {
-    const { date } = getRecentJobsState();
-    if (!date) {
-      setRecentJobsDate(new Date().toLocaleDateString("en-CA"));
-    }
     if ($("recent-jobs-date")) {
       $("recent-jobs-date").value = getRecentJobsState().date;
     }
@@ -217,7 +225,7 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
   $("recent-jobs-date")?.addEventListener("change", (event) => {
     const target = event.currentTarget;
     if (target instanceof HTMLInputElement) {
-      setRecentJobsDate(target.value || new Date().toLocaleDateString("en-CA"));
+      setRecentJobsDate(target.value || "");
       loadRecentJobs({ reset: true });
     }
   });
