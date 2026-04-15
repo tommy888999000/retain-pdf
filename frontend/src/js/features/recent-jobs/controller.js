@@ -70,6 +70,61 @@ function isPrimaryRecentJob(item) {
   return true;
 }
 
+async function collectRecentJobsPage(fetchJobList, apiPrefix, startOffset, selectedDate, pageSize) {
+  const fetchLimit = Math.max(pageSize, 20);
+  const collected = [];
+  let latestInvocationSummary = null;
+  let nextOffset = startOffset;
+  let hasMore = true;
+
+  while (collected.length < pageSize) {
+    const payload = await fetchJobList(apiPrefix, { limit: fetchLimit, offset: nextOffset });
+    latestInvocationSummary = payload?.invocation_summary || latestInvocationSummary;
+    const items = Array.isArray(payload?.items) ? payload.items : [];
+    if (items.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    let consumed = 0;
+    for (const item of items) {
+      consumed += 1;
+      if (!isPrimaryRecentJob(item)) {
+        continue;
+      }
+      const dateKey = recentJobDateKey(item.updated_at || item.created_at);
+      if (!dateKey || dateKey > selectedDate) {
+        continue;
+      }
+      if (dateKey < selectedDate) {
+        hasMore = false;
+        break;
+      }
+      collected.push(item);
+      if (collected.length >= pageSize) {
+        break;
+      }
+    }
+
+    nextOffset += consumed;
+
+    if (!hasMore || collected.length >= pageSize) {
+      break;
+    }
+    if (items.length < fetchLimit) {
+      hasMore = false;
+      break;
+    }
+  }
+
+  return {
+    collected,
+    hasMore,
+    latestInvocationSummary,
+    nextOffset,
+  };
+}
+
 export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }) {
   async function loadRecentJobs({ reset = false } = {}) {
     const list = $("recent-jobs-list");
@@ -89,63 +144,18 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
       const { date, offset, items: previousItems } = getRecentJobsState();
       const selectedDate = date || new Date().toLocaleDateString("en-CA");
       const pageSize = 5;
-      const collected = [];
-      let reachedOlderDate = false;
-      let latestInvocationSummary = null;
-      let nextOffset = offset;
-      let hasMore = true;
-
-      if (reset) {
-        while (collected.length < pageSize && !reachedOlderDate) {
-          const payload = await fetchJobList(apiPrefix, { limit: pageSize, offset: nextOffset });
-          latestInvocationSummary = payload?.invocation_summary || latestInvocationSummary;
-          const items = Array.isArray(payload?.items) ? payload.items : [];
-          if (items.length === 0) {
-            hasMore = false;
-            break;
-          }
-          nextOffset += items.length;
-          for (const item of items) {
-            if (!isPrimaryRecentJob(item)) {
-              continue;
-            }
-            const dateKey = recentJobDateKey(item.updated_at || item.created_at);
-            if (!dateKey) {
-              continue;
-            }
-            if (dateKey > selectedDate) {
-              continue;
-            }
-            if (dateKey === selectedDate) {
-              collected.push(item);
-              if (collected.length >= pageSize) {
-                break;
-              }
-              continue;
-            }
-            if (dateKey < selectedDate) {
-              reachedOlderDate = true;
-              break;
-            }
-          }
-          if (items.length < pageSize) {
-            hasMore = false;
-            break;
-          }
-        }
-      } else {
-        const payload = await fetchJobList(apiPrefix, { limit: pageSize, offset: nextOffset });
-        latestInvocationSummary = payload?.invocation_summary || latestInvocationSummary;
-        const items = Array.isArray(payload?.items) ? payload.items : [];
-        const visibleItems = items.filter(isPrimaryRecentJob);
-        if (items.length === 0) {
-          hasMore = false;
-        } else {
-          collected.push(...visibleItems);
-          nextOffset += items.length;
-          hasMore = items.length === pageSize;
-        }
-      }
+      const {
+        collected,
+        hasMore,
+        latestInvocationSummary,
+        nextOffset,
+      } = await collectRecentJobsPage(
+        fetchJobList,
+        apiPrefix,
+        reset ? 0 : offset,
+        selectedDate,
+        pageSize,
+      );
 
       if (reset && collected.length === 0) {
         setRecentJobsItems([]);
@@ -167,7 +177,7 @@ export function mountRecentJobsFeature({ fetchJobList, apiPrefix, startPolling }
         items: nextItems,
         allItems: nextItems,
         invocationSummary: latestInvocationSummary,
-        reset: true,
+        reset,
         hasMore,
         onSelect(jobId) {
           if (!jobId) {
