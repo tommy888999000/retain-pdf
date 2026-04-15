@@ -155,7 +155,7 @@ export function mountBrowserCredentialsFeature({
       apiKeyInput.value = $("api_key").value || "";
     }
     if (mathModeSelect) {
-      mathModeSelect.value = taskOptions.mathMode === "direct_typst" ? "direct_typst" : "placeholder";
+      mathModeSelect.value = taskOptions.mathMode === "placeholder" ? "placeholder" : "direct_typst";
     }
     if (translateTitlesInput) {
       translateTitlesInput.checked = taskOptions.translateTitles !== false;
@@ -186,7 +186,7 @@ export function mountBrowserCredentialsFeature({
       apiKeyInput?.value?.trim() || "",
     );
     saveTaskOptions?.({
-      mathMode: mathModeSelect?.value || "placeholder",
+      mathMode: mathModeSelect?.value || "direct_typst",
       translateTitles: !!translateTitlesInput?.checked,
     });
     saveBrowserStoredConfig();
@@ -210,7 +210,7 @@ export function mountBrowserCredentialsFeature({
     );
     applyKeyInputs(mineruToken, modelApiKey);
     saveTaskOptions?.({
-      mathMode: mathModeSelect?.value || "placeholder",
+      mathMode: mathModeSelect?.value || "direct_typst",
       translateTitles: !!translateTitlesInput?.checked,
     });
   }

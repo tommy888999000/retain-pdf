@@ -96,7 +96,7 @@ function normalizeWorkflow(value) {
 }
 
 function normalizeMathMode(value) {
-  return `${value || ""}`.trim() === "direct_typst" ? "direct_typst" : "placeholder";
+  return `${value || ""}`.trim() === "placeholder" ? "placeholder" : "direct_typst";
 }
 
 function getRequestedReaderJobIdFromLocation() {
@@ -364,9 +364,6 @@ function initializePage() {
     }
   });
   $("back-home-btn")?.addEventListener("click", () => jobRuntimeFeature?.returnToHome());
-  $("desktop-settings-btn")?.addEventListener("click", () => {
-    browserCredentialsFeature?.openBrowserCredentialsDialog();
-  });
   $("desktop-setup-save-btn")?.addEventListener("click", handleDesktopSetupSave);
   $("open-output-btn")?.addEventListener("click", handleOpenOutputDir);
   appShellFeature.initializeIdleView();

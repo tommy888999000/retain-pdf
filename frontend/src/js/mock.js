@@ -57,7 +57,7 @@ function buildMockJobPayload(scenario = currentMockScenario()) {
       },
       translation: {
         mode: "sci",
-        math_mode: "placeholder",
+        math_mode: "direct_typst",
       },
       render: {
         render_mode: "auto",

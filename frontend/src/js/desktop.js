@@ -3,7 +3,6 @@ import { applyKeyInputs, desktopInvoke, setRuntimeConfig } from "./config.js";
 import { state } from "./state.js";
 
 export function showDesktopUi() {
-  $("desktop-settings-btn").classList.remove("hidden");
   $("open-output-btn").classList.remove("hidden");
 }
 
