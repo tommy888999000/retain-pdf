@@ -193,23 +193,30 @@ fs.mkdirSync(outputFrontendVendorRoot, { recursive: true });
 fs.mkdirSync(outputBackendRoot, { recursive: true });
 fs.mkdirSync(bundledFontsRoot, { recursive: true });
 
-const copyEntries = [
-  ".gitignore",
-  "index.html",
-  "reader.html",
-  "app.js",
-  "styles.css",
-  "runtime-config.js",
-  "package.json",
-  "package-lock.json",
-  "tailwind.config.js",
-  "src",
-];
+const excludedFrontendEntries = new Set([
+  "node_modules",
+  "runtime-config.local.js",
+  ".codex",
+  ".ipynb_checkpoints",
+]);
 
-for (const entry of copyEntries) {
-  const from = path.join(frontendRoot, entry);
-  const to = path.join(outputFrontendRoot, entry);
-  fs.cpSync(from, to, { recursive: true, force: true });
+function shouldExcludeFrontendPath(sourcePath) {
+  const relativePath = path.relative(frontendRoot, sourcePath);
+  if (!relativePath || relativePath.startsWith("..")) {
+    return false;
+  }
+  const parts = relativePath.split(path.sep).filter(Boolean);
+  return parts.some((part) => excludedFrontendEntries.has(part));
+}
+
+for (const entry of fs.readdirSync(frontendRoot, { withFileTypes: true })) {
+  const from = path.join(frontendRoot, entry.name);
+  const to = path.join(outputFrontendRoot, entry.name);
+  fs.cpSync(from, to, {
+    recursive: true,
+    force: true,
+    filter: (sourcePath) => !shouldExcludeFrontendPath(sourcePath),
+  });
 }
 
 function copyFrontendRuntimeDependency(packageName, entries, targetDirName = packageName) {
@@ -249,15 +256,20 @@ copyFrontendRuntimeDependency("pdfjs-dist", [
 ]);
 
 function rewriteDesktopFrontendRuntimeImports() {
-  const readerHtmlPath = path.join(outputFrontendRoot, "reader.html");
-  if (fs.existsSync(readerHtmlPath)) {
-    let readerHtml = fs.readFileSync(readerHtmlPath, "utf8");
-    readerHtml = readerHtml.replace('\n    <script src="./runtime-config.local.js"></script>', "");
-    readerHtml = readerHtml.replaceAll(
-      "./node_modules/pdfjs-dist/web/pdf_viewer.css",
-      "./vendor/pdfjs-dist/web/pdf_viewer.css",
-    );
-    fs.writeFileSync(readerHtmlPath, readerHtml, "utf8");
+  for (const entry of fs.readdirSync(outputFrontendRoot, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".html")) {
+      continue;
+    }
+    const htmlPath = path.join(outputFrontendRoot, entry.name);
+    let html = fs.readFileSync(htmlPath, "utf8");
+    html = html.replace('\n    <script src="./runtime-config.local.js"></script>', "");
+    if (entry.name === "reader.html") {
+      html = html.replaceAll(
+        "./node_modules/pdfjs-dist/web/pdf_viewer.css",
+        "./vendor/pdfjs-dist/web/pdf_viewer.css",
+      );
+    }
+    fs.writeFileSync(htmlPath, html, "utf8");
   }
 
   const readerJsPath = path.join(outputFrontendRoot, "src", "js", "reader.js");
