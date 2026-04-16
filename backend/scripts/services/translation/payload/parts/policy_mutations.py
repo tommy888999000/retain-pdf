@@ -8,6 +8,7 @@ from services.document_schema.semantics import is_reference_heading_semantic
 from services.translation.policy.literal_block_rules import shared_literal_block_label
 from services.translation.policy.mixed_literal_splitter import split_mixed_literal_items
 from services.translation.policy.metadata_filter import find_metadata_fragment_item_ids
+from services.translation.policy.soft_hints import natural_word_count
 
 from .common import RESETTABLE_LABEL_PREFIXES
 from .common import clear_translation_fields
@@ -20,6 +21,10 @@ _FOUNDATIONAL_SKIP_BY_BLOCK_TYPE = {
 _CJK_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
 _EN_WORD_RE = re.compile(r"[A-Za-z]+(?:[-'][A-Za-z]+)?")
+_PROSE_CUE_RE = re.compile(
+    r"\b(if|when|then|thus|are|is|was|were|seen|rules?|vertices?|order|bump|more|governed)\b",
+    re.I,
+)
 
 
 def _bbox_tuple(item: dict) -> tuple[float, float, float, float] | None:
@@ -124,6 +129,38 @@ def _preserve_source_as_translation(item: dict) -> None:
     item["translation_unit_translated_text"] = source_text
     item["protected_translated_text"] = protected_source_text
     item["translated_text"] = source_text
+
+
+def _should_force_translate_mixed_literal_item(item: dict) -> bool:
+    if str(item.get("block_type", "") or "").strip().lower() not in {"", "text"}:
+        return False
+    metadata = item.get("metadata") or {}
+    if not is_body_structure_role(metadata):
+        return False
+    text = str(
+        item.get("mixed_original_protected_source_text")
+        or item.get("translation_unit_protected_source_text")
+        or item.get("protected_source_text")
+        or item.get("source_text")
+        or ""
+    )
+    compact = " ".join(text.split())
+    if len(compact) < 48:
+        return False
+    english_words = _EN_WORD_RE.findall(compact)
+    if len(english_words) < 8:
+        return False
+    long_words = sum(1 for word in english_words if len(word) >= 4)
+    if long_words < 5:
+        return False
+    prose_cues = len(_PROSE_CUE_RE.findall(compact))
+    symbol_chars = sum(1 for ch in compact if ch in "=<>+-*/()[]{}")
+    alpha_chars = sum(1 for ch in compact if ch.isalpha())
+    if alpha_chars <= 0:
+        return False
+    symbol_ratio = symbol_chars / max(1, len(compact))
+    # Bad OCR prose often still contains clear sentence cues; keep_all is too aggressive here.
+    return prose_cues >= 2 and symbol_ratio < 0.28 and natural_word_count(compact) >= 8
 
 
 def looks_like_cjk_dominant_body_text(item: dict) -> bool:
@@ -302,6 +339,8 @@ def apply_mixed_literal_split_policy(
     for item in candidates:
         item_id = str(item.get("item_id", "") or "")
         action, prefix = decisions.get(item_id, ("translate_all", ""))
+        if action == "keep_all" and _should_force_translate_mixed_literal_item(item):
+            action, prefix = "translate_all", ""
         item["mixed_literal_action"] = action
         item["mixed_literal_prefix"] = prefix
         original_protected = str(item.get("mixed_original_protected_source_text", "") or item.get("protected_source_text", "") or "")
@@ -317,6 +356,14 @@ def apply_mixed_literal_split_policy(
             else:
                 tail_protected = original_protected[len(prefix) :].strip() if original_protected.startswith(prefix) else protected_text
             if not tail_protected:
+                if _should_force_translate_mixed_literal_item(item):
+                    item["classification_label"] = "translate_mixed_all"
+                    item["should_translate"] = True
+                    item["skip_reason"] = ""
+                    item["mixed_literal_action"] = "translate_all"
+                    item["mixed_literal_prefix"] = ""
+                    translate_all += 1
+                    continue
                 _mark_item_skipped(item, "skip_mixed_keep_all")
                 keep_all += 1
                 continue
