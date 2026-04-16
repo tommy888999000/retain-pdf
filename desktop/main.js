@@ -182,12 +182,20 @@ function requestJson(url, headers = {}, timeoutMs = 2000) {
 
 async function canReuseExistingBackend(apiPort) {
   const healthUrl = `http://127.0.0.1:${apiPort}/health`;
+  const jobsUrl = `http://127.0.0.1:${apiPort}/api/v1/jobs?limit=1&offset=0`;
   try {
-    const payload = await requestJson(healthUrl, {
+    const healthPayload = await requestJson(healthUrl, {}, 2000);
+    if (!(healthPayload && healthPayload.data && healthPayload.data.status === "up")) {
+      return false;
+    }
+    const jobsPayload = await requestJson(jobsUrl, {
       "x-api-key": DESKTOP_API_KEY,
-    });
-    return payload && payload.data && payload.data.status === "up";
+    }, 3000);
+    return Array.isArray(jobsPayload?.data?.items);
   } catch (error) {
+    console.warn(
+      `[desktop] existing backend on :${apiPort} is not reusable: ${error?.message || error}`,
+    );
     return false;
   }
 }
