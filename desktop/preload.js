@@ -22,6 +22,15 @@ window.addEventListener("unhandledrejection", (event) => {
 
 contextBridge.exposeInMainWorld("retainPdfDesktop", {
   platform: process.platform,
+  invoke(command, args = {}) {
+    return ipcRenderer.invoke("desktop:invoke", command, args);
+  },
+  loadDesktopConfig() {
+    return ipcRenderer.invoke("desktop:invoke", "load_desktop_config");
+  },
+  saveDesktopConfig(payload = {}) {
+    return ipcRenderer.invoke("desktop:invoke", "save_desktop_config", { payload });
+  },
   onStartupProgress(callback) {
     if (typeof callback !== "function") {
       return () => {};
@@ -36,6 +45,6 @@ contextBridge.exposeInMainWorld("retainPdfDesktop", {
 
 contextBridge.exposeInMainWorld("__TAURI_INTERNALS__", {
   invoke(command, args = {}) {
-    return ipcRenderer.invoke("desktop:invoke", command, args);
+    return window.retainPdfDesktop.invoke(command, args);
   },
 });

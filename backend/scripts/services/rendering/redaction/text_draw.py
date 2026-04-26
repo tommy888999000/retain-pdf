@@ -6,7 +6,8 @@ import fitz
 from foundation.config import fonts
 from services.rendering.redaction.redaction import redact_translated_text_areas
 from services.rendering.redaction.shared import TOKEN_RE, get_item_formula_map, iter_valid_translated_items
-from services.rendering.formula.typst_formula_renderer import compile_formula_png
+from services.rendering.formula.fallback.png_renderer import compile_formula_png
+from services.rendering.formula.mode_router import is_direct_typst_math_mode
 from services.translation.payload import re_protect_restored_formulas
 
 
@@ -263,7 +264,7 @@ def apply_translated_items_to_page(
         formula_map = get_item_formula_map(item)
         if formula_map:
             insert_reflowed_segments(page, rect, translated_text, formula_map, font_path)
-        elif str(item.get("math_mode", "placeholder") or "placeholder").strip() == "direct_typst":
+        elif is_direct_typst_math_mode(item):
             insert_direct_math_segments(page, rect, translated_text, font_path)
         else:
             insert_fitted_text(page, rect, translated_text, font_path)

@@ -3,8 +3,8 @@ import { normalizeJobPayload, summarizeStatus, isTerminalStatus } from "../../jo
 
 export function mountJobRuntimeFeature({
   state,
-  apiBase,
   apiPrefix,
+  buildJobDetailEndpoint,
   fetchJobPayload,
   fetchJobEvents,
   fetchJobArtifactsManifest,
@@ -22,6 +22,9 @@ export function mountJobRuntimeFeature({
   onReaderDialogClose,
 }) {
   const JOB_EVENTS_PAGE_SIZE = 200;
+  const JOB_POLL_INTERVAL_MS = 1000;
+  const JOB_EVENTS_REFRESH_MS = 3000;
+  const JOB_MANIFEST_REFRESH_MS = 5000;
 
   function stopPolling() {
     if (state.timer) {
@@ -49,33 +52,78 @@ export function mountJobRuntimeFeature({
     }
   }
 
+  function cachedEventsFor(jobId) {
+    return state.currentJobEventsJobId === jobId ? state.currentJobEvents : null;
+  }
+
+  function cachedManifestFor(jobId) {
+    return state.currentJobManifestJobId === jobId ? state.currentJobManifest : null;
+  }
+
+  function shouldRefreshSecondary(lastFetchedAt, refreshMs, force) {
+    if (force) {
+      return true;
+    }
+    if (!Number.isFinite(lastFetchedAt) || lastFetchedAt <= 0) {
+      return true;
+    }
+    return (Date.now() - lastFetchedAt) >= refreshMs;
+  }
+
   async function fetchJob(jobId) {
     const payload = await fetchJobPayload(jobId, apiPrefix);
-    let eventsPayload = { items: [], limit: 0, offset: 0 };
-    let manifestPayload = { items: [] };
-    try {
-      eventsPayload = await fetchAllJobEvents(jobId);
-    } catch (_err) {
-      // Event stream is secondary; keep main status usable even if events fail.
-    }
-    try {
-      manifestPayload = await fetchJobArtifactsManifest(jobId, apiPrefix);
-    } catch (_err) {
-      // Artifacts manifest is secondary; keep main status usable even if manifest fails.
-    }
-    renderJob(payload, eventsPayload, manifestPayload);
+    const cachedEvents = cachedEventsFor(jobId);
+    const cachedManifest = cachedManifestFor(jobId);
+    renderJob(payload, cachedEvents, cachedManifest);
     if ($("reader-dialog")?.open) {
       onReaderDialogSync?.();
     }
     const job = normalizeJobPayload(payload);
+    const terminal = isTerminalStatus(job.status);
     if (isTerminalStatus(job.status)) {
       stopPolling();
+    }
+    if (shouldRefreshSecondary(state.currentJobEventsFetchedAt, JOB_EVENTS_REFRESH_MS, terminal || !cachedEvents)) {
+      void fetchAllJobEvents(jobId)
+        .then((eventsPayload) => {
+          if (state.currentJobId !== jobId) {
+            return;
+          }
+          state.currentJobEvents = eventsPayload;
+          state.currentJobEventsJobId = jobId;
+          state.currentJobEventsFetchedAt = Date.now();
+          renderJob(payload, eventsPayload, cachedManifestFor(jobId));
+        })
+        .catch(() => {
+          // Event stream is secondary; keep main status usable even if events fail.
+        });
+    }
+    if (shouldRefreshSecondary(state.currentJobManifestFetchedAt, JOB_MANIFEST_REFRESH_MS, terminal || !cachedManifest)) {
+      void fetchJobArtifactsManifest(jobId, apiPrefix)
+        .then((manifestPayload) => {
+          if (state.currentJobId !== jobId) {
+            return;
+          }
+          state.currentJobManifest = manifestPayload;
+          state.currentJobManifestJobId = jobId;
+          state.currentJobManifestFetchedAt = Date.now();
+          renderJob(payload, cachedEventsFor(jobId), manifestPayload);
+        })
+        .catch(() => {
+          // Artifacts manifest is secondary; keep main status usable even if manifest fails.
+        });
     }
   }
 
   function startPolling(jobId) {
     stopPolling();
     state.currentJobId = jobId;
+    state.currentJobEvents = null;
+    state.currentJobEventsJobId = "";
+    state.currentJobEventsFetchedAt = 0;
+    state.currentJobManifest = null;
+    state.currentJobManifestJobId = "";
+    state.currentJobManifestFetchedAt = 0;
     if (!state.currentJobStartedAt) {
       state.currentJobStartedAt = new Date().toISOString();
     }
@@ -87,7 +135,7 @@ export function mountJobRuntimeFeature({
       fetchJob(jobId).catch((err) => {
         setText("error-box", err.message);
       });
-    }, 3000);
+    }, JOB_POLL_INTERVAL_MS);
   }
 
   function returnToHome() {
@@ -98,6 +146,11 @@ export function mountJobRuntimeFeature({
     state.currentJobId = "";
     state.currentJobSnapshot = null;
     state.currentJobManifest = null;
+    state.currentJobManifestJobId = "";
+    state.currentJobManifestFetchedAt = 0;
+    state.currentJobEvents = null;
+    state.currentJobEventsJobId = "";
+    state.currentJobEventsFetchedAt = 0;
     state.currentJobStartedAt = "";
     state.currentJobFinishedAt = "";
     state.appliedPageRange = "";
@@ -146,7 +199,7 @@ export function mountJobRuntimeFeature({
     }
     $("cancel-btn").disabled = true;
     try {
-      await submitJson(`${apiBase()}${apiPrefix}/jobs/${jobId}/cancel`, {});
+      await submitJson(`${buildJobDetailEndpoint(jobId, apiPrefix)}/cancel`, {});
       await fetchJob(jobId);
     } catch (err) {
       setText("error-box", err.message);

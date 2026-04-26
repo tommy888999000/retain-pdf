@@ -80,8 +80,6 @@
   单页渲染调试入口。
 - `scripts/entrypoints/translate_page.py`
   单页翻译调试入口。
-- `scripts/entrypoints/check_math_cases.py`
-  公式归一化回归检查。
 - `scripts/entrypoints/validate_document_schema.py`
   契约排错入口。只用于检查 `document.v1` 或 adapter 行为，不是日常整链路入口。
 - `scripts/devtools/tests/document_schema/regression_check.py`
@@ -220,6 +218,30 @@
 - 本地：`run_book.py --spec .../book.spec.json`
 - Rust API：创建 job，由 Rust 生成 `specs/*.spec.json` 并依次启动 worker
 - 测试脚本：只做回归，不代表主执行路径
+
+## Python 依赖真相源
+
+当前 Python 依赖已经收敛到仓库根目录的 [`pyproject.toml`](/home/wxyhgk/tmp/Code/pyproject.toml)。
+
+不要直接手改这些 requirements 文件：
+
+- [`docker/requirements-app.txt`](/home/wxyhgk/tmp/Code/docker/requirements-app.txt)
+- [`docker/requirements-test.txt`](/home/wxyhgk/tmp/Code/docker/requirements-test.txt)
+- [`desktop/requirements-desktop-posix.txt`](/home/wxyhgk/tmp/Code/desktop/requirements-desktop-posix.txt)
+- [`desktop/requirements-desktop-windows.txt`](/home/wxyhgk/tmp/Code/desktop/requirements-desktop-windows.txt)
+- [`desktop/requirements-desktop-macos.txt`](/home/wxyhgk/tmp/Code/desktop/requirements-desktop-macos.txt)
+
+修改依赖后统一执行：
+
+```bash
+python backend/scripts/devtools/sync_python_requirements.py --repo-root .
+```
+
+只检查是否漂移：
+
+```bash
+python backend/scripts/devtools/sync_python_requirements.py --repo-root . --check
+```
 
 兼容说明：
 

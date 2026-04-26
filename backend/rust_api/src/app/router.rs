@@ -122,6 +122,10 @@ pub fn build_app(state: AppState) -> Router {
             "/api/v1/providers/mineru/validate-token",
             post(providers::validate_mineru_token),
         )
+        .route(
+            "/api/v1/providers/paddle/validate-token",
+            post(providers::validate_paddle_token),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_api_key,

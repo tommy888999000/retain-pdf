@@ -7,7 +7,7 @@ from pathlib import Path
 from foundation.config.output_layout import RENDERED_DIR_NAME
 from foundation.config.output_layout import TYPST_DIR_NAME
 from foundation.config import paths
-from services.rendering.formula.normalizer import aggressively_simplify_formula_for_latex_math
+from services.rendering.formula.fallback.latex_normalizer import aggressively_simplify_formula_for_latex_math
 
 TYPST_OVERLAY_DIR = paths.OUTPUT_DIR / "typst_overlay"
 CMARKER_VERSION = "0.1.8"

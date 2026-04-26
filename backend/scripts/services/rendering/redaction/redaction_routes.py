@@ -83,7 +83,7 @@ def _cover_rects_from_valid_items(valid_items: list[tuple[fitz.Rect, dict, str]]
 
 
 def _should_force_bbox_redaction(item: dict) -> bool:
-    return True
+    return bool(item.get("continuation_group"))
 
 
 def _new_redaction_diagnostics(valid_items: list[tuple[fitz.Rect, dict, str]]) -> dict[str, object]:
@@ -170,7 +170,6 @@ def apply_standard_redaction(
             merged_count = len(merged_removable_rects)
             diagnostics["merged_removable_rects"] = int(diagnostics["merged_removable_rects"]) + merged_count
             removable = bool(merged_removable_rects)
-            vector_overlap = item_should_use_cover_only(rect, drawing_rects)
             if raw_count >= ITEM_REMOVABLE_RECTS_FAST_COVER_THRESHOLD:
                 cover_rects.append(rect)
                 diagnostics["item_fast_cover_count"] = int(diagnostics["item_fast_cover_count"]) + 1
@@ -179,10 +178,8 @@ def apply_standard_redaction(
                 for removable_rect in merged_removable_rects:
                     redactions.append((removable_rect, None))
                 continue
-            if vector_overlap:
-                cover_rects.append(rect)
-                continue
-            fill = (1, 1, 1)
+            cover_rects.append(rect)
+            continue
         else:
             fill = (1, 1, 1) if fill_background else None
         redactions.append((rect, fill))

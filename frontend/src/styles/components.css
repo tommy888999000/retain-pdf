@@ -132,7 +132,7 @@
   }
 
   #browser-credentials-dialog .desktop-head {
-    padding: 18px 20px;
+    padding: 14px 16px;
   }
 
   .dialog-close-btn {
@@ -155,14 +155,14 @@
   }
 
   #browser-credentials-dialog .desktop-body {
-    gap: 12px;
-    padding: 18px 20px 20px;
+    gap: 10px;
+    padding: 14px 16px 16px;
     min-height: 0;
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
   .credential-dialog-head h2 {
-    font-size: 1.08rem;
+    font-size: 0.96rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     color: #1d1d1f;
@@ -176,7 +176,7 @@
   }
 
   .credential-dialog-body {
-    gap: 14px;
+    gap: 10px;
   }
 
   .credential-dialog-note {
@@ -209,6 +209,24 @@
     display: grid;
     align-content: start;
     overflow: auto;
+  }
+
+  .credential-provider-tabs {
+    margin-top: 0;
+  }
+
+  .credential-provider-panels {
+    display: grid;
+    gap: 10px;
+    min-height: 0;
+  }
+
+  .credential-provider-panel {
+    overflow: hidden;
+  }
+
+  .credential-provider-panel.is-active {
+    overflow: visible;
   }
 
   .developer-dialog-body {
@@ -421,29 +439,73 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 30px;
-    padding: 0 12px;
+    min-height: 26px;
+    padding: 0 10px;
     border-radius: 999px;
     border: 1px solid #d2d2d7;
     background: #fff;
     color: #1d1d1f;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 500;
     text-decoration: none;
     white-space: nowrap;
+  }
+
+  .credential-card-grid-compact {
+    gap: 10px;
+  }
+
+  .credential-card-grid-compact .credential-card {
+    padding: 11px 12px;
+    border-radius: 14px;
+  }
+
+  .credential-card-grid-compact .credential-card-head {
+    margin-bottom: 8px;
+  }
+
+  .credential-card-grid-compact .credential-card-head h3 {
+    font-size: 13px;
+  }
+
+  .credential-card-grid-compact .credential-card-head p {
+    margin-top: 2px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .credential-card-grid-compact label + label,
+  .credential-card-grid-compact label + .credential-card-actions,
+  .credential-card-grid-compact .credential-provider-panels {
+    margin-top: 8px;
+  }
+
+  .credential-provider-panels {
+    display: grid;
+    gap: 8px;
+  }
+
+  .credential-provider-panel.is-active {
+    display: grid;
+    gap: 8px;
+  }
+
+  .credential-provider-panel .credential-card-head {
+    margin-bottom: 0;
   }
 
   .credential-card-actions {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .credential-card-actions button.secondary {
-    min-height: 34px;
-    padding-inline: 12px;
-    font-size: 12px;
+    min-height: 28px;
+    padding-inline: 9px;
+    font-size: 11px;
   }
 
   .credential-toggle {
@@ -465,10 +527,36 @@
   .token-inline-status {
     display: inline-flex;
     align-items: center;
-    min-height: 34px;
-    font-size: 12px;
+    min-height: 28px;
+    font-size: 11px;
     line-height: 1.45;
     color: #6e6e73;
+  }
+
+  #browser-credentials-dialog label {
+    gap: 6px;
+    font-size: 12px;
+  }
+
+  #browser-credentials-dialog .developer-label {
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  #browser-credentials-dialog input[type="text"],
+  #browser-credentials-dialog input[type="password"],
+  #browser-credentials-dialog select {
+    height: 36px;
+    min-height: 36px;
+    border-radius: 12px;
+    padding: 0 11px;
+    font-size: 12px;
+  }
+
+  #browser-credentials-dialog .credential-dialog-actions button {
+    min-height: 34px;
+    padding-inline: 12px;
+    font-size: 12px;
   }
 
   .token-inline-status.is-valid {

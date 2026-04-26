@@ -20,6 +20,21 @@ from services.pipeline_shared.events import emit_stage_progress
 from services.pipeline_shared.events import emit_stage_transition
 
 
+def _format_translation_progress_message(current: int, total: int, touched_pages: set[int]) -> str:
+    if touched_pages:
+        sorted_pages = sorted(page_idx + 1 for page_idx in touched_pages)
+        if len(sorted_pages) == 1:
+            page_suffix = f"（最近页: {sorted_pages[0]}）"
+        else:
+            preview = ",".join(str(page) for page in sorted_pages[:4])
+            if len(sorted_pages) > 4:
+                preview = f"{preview}..."
+            page_suffix = f"（最近页: {preview}）"
+    else:
+        page_suffix = ""
+    return f"已完成第 {current}/{total} 批翻译{page_suffix}"
+
+
 def translate_book_with_global_continuations(
     *,
     data: dict,
@@ -150,6 +165,16 @@ def translate_book_with_global_continuations(
         domain_guidance=domain_guidance,
         mode=mode,
         translation_context=translation_context,
+        progress_callback=lambda current, total, touched_pages: emit_stage_progress(
+            stage="translating",
+            message=_format_translation_progress_message(current, total, touched_pages),
+            progress_current=current,
+            progress_total=total,
+            payload={
+                "touched_page_indexes": sorted(touched_pages),
+                "touched_page_numbers": [page_idx + 1 for page_idx in sorted(touched_pages)],
+            },
+        ),
     )
     if run_diagnostics is not None:
         run_diagnostics.mark_phase_end("translation_batches")

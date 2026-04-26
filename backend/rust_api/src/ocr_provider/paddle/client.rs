@@ -191,6 +191,66 @@ impl PaddleClient {
         })
     }
 
+    pub async fn probe_token(&self) -> Result<PaddleTrace<()>> {
+        let probe_job_id = format!("retain-pdf-token-probe-{}", fastrand::u64(..));
+        let response = self
+            .http
+            .get(format!(
+                "{}/api/v2/ocr/jobs/{}",
+                self.base_url, probe_job_id
+            ))
+            .header(AUTHORIZATION, self.auth_header())
+            .send()
+            .await
+            .map_err(|err| {
+                anyhow::Error::new(PaddleProviderError::request_failed("probe", &err, None))
+            })?;
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(|err| {
+            anyhow::Error::new(PaddleProviderError::request_failed("probe", &err, None))
+        })?;
+        let body_text = String::from_utf8_lossy(&bytes).to_string();
+        let envelope = serde_json::from_slice::<PaddlePollEnvelope>(&bytes).ok();
+        let trace_id = envelope
+            .as_ref()
+            .and_then(|parsed| normalize_trace_id(&parsed.log_id));
+
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(PaddleTrace { data: (), trace_id });
+        }
+
+        if !status.is_success() {
+            return Err(anyhow::Error::new(PaddleProviderError::http_status(
+                "probe",
+                status,
+                &body_text,
+                trace_id.as_deref(),
+                None,
+            )));
+        }
+
+        if let Some(parsed) = envelope {
+            if parsed.error_code == 0 || parsed.error_code == 404 || parsed.error_code == 11001 {
+                return Ok(PaddleTrace {
+                    data: (),
+                    trace_id: normalize_trace_id(&parsed.log_id),
+                });
+            }
+            return Err(anyhow::Error::new(PaddleProviderError::provider_error(
+                "probe",
+                parsed.error_code,
+                &parsed.error_msg,
+                normalize_trace_id(&parsed.log_id).as_deref(),
+            )));
+        }
+
+        Err(anyhow::Error::new(PaddleProviderError::invalid_response(
+            "probe",
+            format!("failed to parse Paddle probe JSON: {body_text}"),
+            None,
+        )))
+    }
+
     pub async fn download_jsonl_result(&self, jsonl_url: &str) -> Result<PaddleResultPayload> {
         let text = self
             .http

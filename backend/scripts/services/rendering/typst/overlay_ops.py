@@ -7,6 +7,7 @@ import fitz
 
 from foundation.config import fonts
 from services.rendering.api.render_payloads import prepare_render_payloads_by_page
+from services.rendering.typst.compiler import TypstCompileError
 from services.rendering.typst.overlay_book import build_overlay_page_specs
 from services.rendering.typst.overlay_book import overlay_pages_via_page_fallback
 from services.rendering.typst.overlay_book import prepare_overlay_doc_pages
@@ -85,6 +86,8 @@ def overlay_translated_pages_on_doc(
             "page_count": 0,
             "mode": "empty",
             "pages": [],
+            "compile_errors": [],
+            "sanitize_page_diagnostics": [],
         }
 
     page_specs = build_overlay_page_specs(doc, ordered_page_indices, translated_pages, stem=stem)
@@ -110,13 +113,17 @@ def overlay_translated_pages_on_doc(
         diagnostics["sanitize_elapsed_seconds"] = 0.0
         diagnostics["page_count"] = len(ordered_page_indices)
         diagnostics["mode"] = "book_overlay"
+        diagnostics.setdefault("compile_errors", [])
+        diagnostics.setdefault("sanitize_page_diagnostics", [])
         return diagnostics
     except RuntimeError as exc:
         first_compile_elapsed = time.perf_counter() - compile_started
         print("typst book compile failed; sanitizing pages before per-page fallback", flush=True)
         print(str(exc), flush=True)
+        compile_errors = [exc.to_dict() if isinstance(exc, TypstCompileError) else str(exc)]
 
     sanitize_started = time.perf_counter()
+    sanitize_page_diagnostics: list[dict] = []
     sanitized_book_specs, sanitized_translated_pages, sanitized_page_specs = sanitize_overlay_page_specs(
         page_specs,
         api_key=api_key,
@@ -124,6 +131,7 @@ def overlay_translated_pages_on_doc(
         base_url=base_url,
         font_family=font_family,
         font_paths=font_paths,
+        page_diagnostics=sanitize_page_diagnostics,
     )
     sanitize_elapsed = time.perf_counter() - sanitize_started
     sanitized_compile_started = time.perf_counter()
@@ -147,10 +155,13 @@ def overlay_translated_pages_on_doc(
         diagnostics["sanitize_elapsed_seconds"] = sanitize_elapsed
         diagnostics["page_count"] = len(ordered_page_indices)
         diagnostics["mode"] = "book_overlay_sanitized"
+        diagnostics["compile_errors"] = compile_errors
+        diagnostics["sanitize_page_diagnostics"] = sanitize_page_diagnostics
         return diagnostics
     except RuntimeError as exc:
         print("typst sanitized book compile failed; falling back to per-page compilation", flush=True)
         print(str(exc), flush=True)
+        compile_errors.append(exc.to_dict() if isinstance(exc, TypstCompileError) else str(exc))
 
     diagnostics = overlay_pages_via_page_fallback(
         doc,
@@ -171,4 +182,6 @@ def overlay_translated_pages_on_doc(
     diagnostics["sanitize_elapsed_seconds"] = sanitize_elapsed
     diagnostics["page_count"] = len(ordered_page_indices)
     diagnostics["mode"] = "page_overlay_fallback"
+    diagnostics["compile_errors"] = compile_errors
+    diagnostics["sanitize_page_diagnostics"] = sanitize_page_diagnostics
     return diagnostics

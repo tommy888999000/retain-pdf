@@ -4,16 +4,17 @@ import {
   apiBase,
   applyKeyInputs,
   defaultMineruToken,
+  defaultOcrProvider,
+  defaultPaddleToken,
   defaultModelApiKey,
   defaultModelBaseUrl,
   defaultModelName,
-  desktopInvoke,
   isMockMode,
   isDesktopMode,
-  loadBrowserStoredConfig,
-  loadDeveloperStoredConfig,
-  saveDeveloperStoredConfig,
+  loadPersistedConfig,
+  openDesktopOutputDirectory,
   saveBrowserStoredConfig,
+  savePersistedDeveloperStoredConfig,
 } from "./config.js";
 import {
   API_PREFIX,
@@ -38,6 +39,8 @@ import {
   setDesktopBusy,
 } from "./desktop.js";
 import {
+  buildApiEndpoint,
+  buildJobDetailEndpoint,
   fetchJobEvents,
   fetchJobArtifactsManifest,
   fetchJobList,
@@ -47,8 +50,10 @@ import {
   fetchTranslationItem,
   fetchTranslationItems,
   replayTranslationItem,
+  submitJobRequest,
   submitJson,
   submitUploadRequest,
+  validatePaddleToken,
   validateMineruToken,
 } from "./network.js";
 import { mountAppActionsFeature } from "./features/app-actions/controller.js";
@@ -213,12 +218,17 @@ async function checkApiConnectivity() {
   await appActionsFeature?.checkApiConnectivity();
 }
 
-function initializePage() {
-  const browserStored = loadBrowserStoredConfig();
-  state.developerConfig = loadDeveloperStoredConfig();
+async function initializePage() {
+  const persistedConfig = await loadPersistedConfig();
+  const browserStored = persistedConfig.browserConfig || {};
+  state.developerConfig = persistedConfig.developerConfig || {};
   applyKeyInputs(
-  browserStored.mineruToken || defaultMineruToken(),
-  browserStored.modelApiKey || defaultModelApiKey(),
+    {
+      ocrProvider: browserStored.ocrProvider || defaultOcrProvider(),
+      mineruToken: browserStored.mineruToken || defaultMineruToken(),
+      paddleToken: browserStored.paddleToken || defaultPaddleToken(),
+      modelApiKey: browserStored.modelApiKey || defaultModelApiKey(),
+    },
   );
   appShellFeature = mountAppShellFeature({
     isMockMode,
@@ -237,10 +247,12 @@ function initializePage() {
   workflowFeature = mountWorkflowFeature({
     state,
     isMockMode,
-    saveDeveloperStoredConfig,
+    saveDeveloperStoredConfig: savePersistedDeveloperStoredConfig,
     defaultModelName,
     defaultModelBaseUrl,
     defaultMineruToken,
+    defaultPaddleToken,
+    defaultOcrProvider,
     defaultModelApiKey,
     normalizeWorkflow,
     normalizeMathMode,
@@ -294,6 +306,7 @@ function initializePage() {
     state,
     applyKeyInputs,
     defaultMineruToken,
+    defaultPaddleToken,
     defaultModelApiKey,
     defaultModelBaseUrl,
     getTaskOptions: () => workflowFeature?.developerConfigWithDefaults() || {},
@@ -303,12 +316,24 @@ function initializePage() {
         mathMode: normalizeMathMode(mathMode),
         translateTitles: translateTitles !== false,
       };
-      saveDeveloperStoredConfig(state.developerConfig);
+      void savePersistedDeveloperStoredConfig(state.developerConfig);
     },
     saveBrowserStoredConfig,
     saveDesktopConfig,
     checkApiConnectivity: () => appActionsFeature?.checkApiConnectivity(),
-    validateMineruToken,
+    validateOcrToken: (apiPrefix, providerId, token) => {
+      if (providerId === "paddle") {
+        return validatePaddleToken(apiPrefix, {
+          paddle_token: token,
+          base_url: "https://paddleocr.aistudio-app.com",
+        });
+      }
+      return validateMineruToken(apiPrefix, {
+        mineru_token: token,
+        base_url: "https://mineru.net",
+        model_version: DEFAULT_MODEL_VERSION,
+      });
+    },
     onCredentialStateChange: () => workflowFeature?.applyWorkflowMode(),
   });
   artifactDownloadsFeature = mountArtifactDownloadsFeature({
@@ -320,14 +345,17 @@ function initializePage() {
     state,
     apiBase,
     apiPrefix: API_PREFIX,
+    buildApiEndpoint,
     isMockMode,
     openSetupDialog,
     renderJob,
     setText,
     submitJson,
+    submitJobRequest,
     saveDesktopConfig,
     setDesktopBusy,
-    desktopInvoke,
+    openDesktopOutputDirectory,
+    resetUploadedFile,
     currentWorkflow: () => workflowFeature?.currentWorkflow() || WORKFLOW_BOOK,
     workflowNeedsCredentials: (workflow) => workflowFeature?.workflowNeedsCredentials(workflow) ?? (workflow !== WORKFLOW_RENDER),
     workflowNeedsUpload: (workflow) => workflowFeature?.workflowNeedsUpload(workflow) ?? (workflow !== WORKFLOW_RENDER),
@@ -347,8 +375,8 @@ function initializePage() {
   });
   jobRuntimeFeature = mountJobRuntimeFeature({
     state,
-    apiBase,
     apiPrefix: API_PREFIX,
+    buildJobDetailEndpoint,
     fetchJobPayload,
     fetchJobEvents,
     fetchJobArtifactsManifest,
@@ -370,7 +398,9 @@ function initializePage() {
   statusDetailFeature.bindEvents();
   appShellFeature.bindChrome();
   $("file")?.addEventListener("change", handleFileSelected);
+  $("ocr_provider")?.addEventListener("input", saveBrowserStoredConfig);
   $("mineru_token")?.addEventListener("input", saveBrowserStoredConfig);
+  $("paddle_token")?.addEventListener("input", saveBrowserStoredConfig);
   $("api_key")?.addEventListener("input", saveBrowserStoredConfig);
   $("job-form")?.addEventListener("submit", submitForm);
   $("page-range-btn")?.addEventListener("click", () => uploadFeature?.openPageRangeDialog());
@@ -429,20 +459,26 @@ function initializePage() {
       }
     }, 0);
   }
+  return persistedConfig;
 }
 
 export function initializeApp() {
-  initializePage();
-  if (isDesktopMode()) {
-    bootstrapDesktop()
-      .then(() => {
-        workflowFeature?.applyWorkflowMode();
-      })
-      .catch((err) => {
-        setText("error-box", err.message || String(err));
-      });
-  } else {
-    checkApiConnectivity().catch(() => {});
-    workflowFeature?.updateCredentialGate();
-  }
+  initializePage()
+    .then((persistedConfig) => {
+      if (isDesktopMode()) {
+        bootstrapDesktop(persistedConfig)
+          .then(() => {
+            workflowFeature?.applyWorkflowMode();
+          })
+          .catch((err) => {
+            setText("error-box", err.message || String(err));
+          });
+        return;
+      }
+      checkApiConnectivity().catch(() => {});
+      workflowFeature?.updateCredentialGate();
+    })
+    .catch((err) => {
+      setText("error-box", err.message || String(err));
+    });
 }

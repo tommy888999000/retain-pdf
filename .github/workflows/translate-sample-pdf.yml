@@ -52,7 +52,7 @@ run-name: >-
       model:
         description: "OpenAI-compatible model name"
         required: true
-        default: "deepseek-chat"
+        default: "deepseek-v4-flash"
         type: string
       base_url:
         description: "OpenAI-compatible API base URL"
@@ -142,6 +142,7 @@ jobs:
         shell: bash
         run: |
           python -m pip install --upgrade pip
+          python backend/scripts/devtools/sync_python_requirements.py --repo-root . --check
           python -m pip install -r docker/requirements-app.txt
 
       - name: Setup Typst runtime

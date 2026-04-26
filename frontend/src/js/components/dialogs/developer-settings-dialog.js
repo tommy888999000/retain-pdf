@@ -52,7 +52,7 @@ class DeveloperSettingsDialog extends HTMLElement {
                   </label>
                   <label>
                     <span>模型名称</span>
-                    <input id="developer-model" type="text" autocomplete="off" placeholder="例如 deepseek-chat" />
+                    <input id="developer-model" type="text" autocomplete="off" placeholder="例如 deepseek-v4-flash" />
                   </label>
                 </div>
               </section>

@@ -1,17 +1,22 @@
 import { $ } from "../../dom.js";
+import { buildJobsEndpoint } from "../../network.js";
+import { getOcrProviderDefinition, normalizeOcrProvider } from "../../provider-config.js";
 
 export function mountAppActionsFeature({
   state,
   apiBase,
   apiPrefix,
+  buildApiEndpoint,
   isMockMode,
   openSetupDialog,
   renderJob,
   setText,
   submitJson,
+  submitJobRequest,
   saveDesktopConfig,
   setDesktopBusy,
-  desktopInvoke,
+  openDesktopOutputDirectory,
+  resetUploadedFile,
   currentWorkflow,
   workflowNeedsCredentials,
   workflowNeedsUpload,
@@ -21,6 +26,36 @@ export function mountAppActionsFeature({
   getJobRuntimeFeature,
   onDesktopConfigSaved,
 }) {
+  function currentDesktopSetupProvider() {
+    return normalizeOcrProvider($("setup-ocr-provider")?.value || $("ocr_provider")?.value || "mineru");
+  }
+
+  function syncDesktopSetupProviderUi() {
+    const provider = currentDesktopSetupProvider();
+    const select = $("setup-ocr-provider");
+    if (!select) {
+      return;
+    }
+    select.value = provider;
+    document.querySelectorAll("[data-setup-provider-panel]").forEach((panel) => {
+      panel.hidden = panel.dataset.setupProviderPanel !== provider;
+    });
+  }
+
+  function isMissingUploadError(error) {
+    const message = `${error?.message || error || ""}`;
+    return message.includes("upload not found");
+  }
+
+  function handleMissingUploadError() {
+    state.uploadId = "";
+    state.uploadedFileName = "";
+    state.uploadedPageCount = 0;
+    state.uploadedBytes = 0;
+    resetUploadedFile?.();
+    setText("error-box", "当前上传文件已失效，请重新上传 PDF 后再提交。");
+  }
+
   async function submitForm(event) {
     event.preventDefault();
     const workflow = currentWorkflow();
@@ -28,7 +63,7 @@ export function mountAppActionsFeature({
       $("submit-btn").disabled = true;
       setText("error-box", "-");
       try {
-        const payload = await submitJson(`${apiBase()}${apiPrefix}/jobs`, { workflow, mock: true });
+        const payload = await submitJobRequest(apiPrefix, { workflow, source: {}, mock: true });
         state.currentJobStartedAt = new Date().toISOString();
         state.currentJobFinishedAt = "";
         renderJob(payload);
@@ -53,15 +88,15 @@ export function mountAppActionsFeature({
       setText("error-box", "请先在开发者设置里填写 Render 源任务 ID。");
       return;
     }
-    if (workflowNeedsCredentials(workflow) && !(await getBrowserCredentialsFeature()?.ensureMineruTokenReady({
+    if (workflowNeedsCredentials(workflow) && !(await getBrowserCredentialsFeature()?.ensureOcrCredentialsReady({
       onMissingToken: () => {
-        setText("error-box", "请先填写 MinerU Token。");
+        setText("error-box", "请先填写当前 OCR Provider 凭证。");
         if (!state.desktopMode) {
           getBrowserCredentialsFeature()?.openBrowserCredentialsDialog();
         }
       },
       onInvalidToken: (result) => {
-        setText("error-box", result.summary || "MinerU Token 校验未通过。");
+        setText("error-box", result.summary || "OCR Provider 凭证校验未通过。");
         if (!state.desktopMode) {
           getBrowserCredentialsFeature()?.openBrowserCredentialsDialog();
         }
@@ -75,12 +110,16 @@ export function mountAppActionsFeature({
 
     try {
       const runPayload = collectRunPayload();
-      const payload = await submitJson(`${apiBase()}${apiPrefix}/jobs`, runPayload);
+      const payload = await submitJobRequest(apiPrefix, runPayload);
       state.currentJobStartedAt = new Date().toISOString();
       state.currentJobFinishedAt = "";
       renderJob(payload);
       getJobRuntimeFeature()?.startPolling(payload.job_id);
     } catch (err) {
+      if (isMissingUploadError(err)) {
+        handleMissingUploadError();
+        return;
+      }
       setText("error-box", err.message);
     } finally {
       $("submit-btn").disabled = false;
@@ -89,25 +128,43 @@ export function mountAppActionsFeature({
 
   async function checkApiConnectivity() {
     try {
-      const resp = await fetch(`${apiBase()}/health`);
+      const resp = await fetch(buildApiEndpoint("", "health"));
       if (!resp.ok) {
         throw new Error(`health ${resp.status}`);
       }
+      return true;
     } catch (_err) {
-      setText("error-box", `当前前端无法连接后端。API Base: ${apiBase()}。请确认本地服务已经启动，然后重试。`);
+      const message = `当前前端无法连接后端。API Base: ${apiBase()}。请确认本地服务已经启动，然后重试。`;
+      setText("error-box", message);
+      throw new Error(message);
     }
   }
 
   async function handleDesktopSetupSave() {
-    const mineruToken = $("setup-mineru-token").value.trim();
+    const provider = currentDesktopSetupProvider();
+    const definition = getOcrProviderDefinition(provider);
+    const mineruToken = $("setup-mineru-token")?.value?.trim() || "";
+    const paddleToken = $("setup-paddle-token")?.value?.trim() || "";
+    const providerToken = definition.id === "paddle" ? paddleToken : mineruToken;
     const modelApiKey = $("setup-model-api-key").value.trim();
-    if (!mineruToken || !modelApiKey) {
-      setDesktopBusy("请先填写 MinerU Token 和 Model API Key。");
+    if (!providerToken || !modelApiKey) {
+      setDesktopBusy(`请先填写 ${definition.tokenLabel} 和 DeepSeek Key。`);
       return;
     }
     setDesktopBusy("正在保存配置并启动服务…");
     try {
-      await saveDesktopConfig(mineruToken, modelApiKey, checkApiConnectivity);
+      await saveDesktopConfig(
+        {
+          browserConfig: {
+            ocrProvider: provider,
+            mineruToken,
+            paddleToken,
+            modelApiKey,
+          },
+          markConfigured: true,
+        },
+        checkApiConnectivity,
+      );
       onDesktopConfigSaved?.();
       setDesktopBusy("");
     } catch (err) {
@@ -117,11 +174,14 @@ export function mountAppActionsFeature({
 
   async function handleOpenOutputDir() {
     try {
-      await desktopInvoke("open_output_directory");
+      await openDesktopOutputDirectory();
     } catch (err) {
       setText("error-box", err.message || String(err));
     }
   }
+
+  $("setup-ocr-provider")?.addEventListener("change", syncDesktopSetupProviderUi);
+  syncDesktopSetupProviderUi();
 
   return {
     checkApiConnectivity,

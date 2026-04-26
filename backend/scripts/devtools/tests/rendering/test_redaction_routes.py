@@ -40,7 +40,6 @@ def test_apply_standard_redaction_uses_text_only_rects_for_mixed_items(monkeypat
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [fitz.Rect(0, 0, 120, 60)])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_should_use_cover_only", lambda _rect, _drawing_rects: True)
     monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect: [removable_rect])
     monkeypatch.setattr(
         redaction_routes,
@@ -52,7 +51,7 @@ def test_apply_standard_redaction_uses_text_only_rects_for_mixed_items(monkeypat
     redaction_routes.apply_standard_redaction(page, valid_items)
 
     assert covered_rects == []
-    assert page.redact_annots == [(rect, None)]
+    assert page.redact_annots == [(removable_rect, None)]
     assert page.redaction_calls == [
         {
             "images": fitz.PDF_REDACT_IMAGE_NONE,
@@ -70,7 +69,6 @@ def test_apply_standard_redaction_keeps_text_redaction_for_plain_text(monkeypatc
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [fitz.Rect(0, 0, 120, 60)])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_should_use_cover_only", lambda _rect, _drawing_rects: False)
     monkeypatch.setattr(redaction_routes, "item_removable_text_rects", lambda _page, _item, _rect: [rect])
     monkeypatch.setattr(
         redaction_routes,
@@ -104,7 +102,6 @@ def test_apply_standard_redaction_fast_page_cover_only_for_fragmented_page(monke
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_should_use_cover_only", lambda _rect, _drawing_rects: False)
     monkeypatch.setattr(
         redaction_routes,
         "item_removable_text_rects",
@@ -118,17 +115,11 @@ def test_apply_standard_redaction_fast_page_cover_only_for_fragmented_page(monke
 
     diagnostics = redaction_routes.apply_standard_redaction(page, valid_items)
 
-    assert diagnostics["fast_page_cover_only"] is False
-    assert diagnostics["route"] == "standard_redaction"
-    assert page.redact_annots == [(fitz.Rect(10, 10, 100, 40), None), (fitz.Rect(10, 50, 100, 80), None)]
-    assert page.redaction_calls == [
-        {
-            "images": fitz.PDF_REDACT_IMAGE_NONE,
-            "graphics": fitz.PDF_REDACT_LINE_ART_NONE,
-            "text": fitz.PDF_REDACT_TEXT_REMOVE,
-        }
-    ]
-    assert covered_rects == []
+    assert diagnostics["fast_page_cover_only"] is True
+    assert diagnostics["route"] == "fast_page_cover_only"
+    assert page.redact_annots == []
+    assert page.redaction_calls == []
+    assert covered_rects == [fitz.Rect(10, 10, 100, 40), fitz.Rect(10, 50, 100, 80)]
 
 
 def test_apply_standard_redaction_uses_bbox_for_continuation_items(monkeypatch) -> None:
@@ -138,7 +129,6 @@ def test_apply_standard_redaction_uses_bbox_for_continuation_items(monkeypatch) 
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_should_use_cover_only", lambda _rect, _drawing_rects: False)
     monkeypatch.setattr(
         redaction_routes,
         "item_removable_text_rects",
@@ -160,7 +150,6 @@ def test_apply_standard_redaction_uses_bbox_for_non_continuation_items(monkeypat
 
     monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [])
     monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
-    monkeypatch.setattr(redaction_routes, "item_should_use_cover_only", lambda _rect, _drawing_rects: False)
     monkeypatch.setattr(
         redaction_routes,
         "item_removable_text_rects",
@@ -170,6 +159,34 @@ def test_apply_standard_redaction_uses_bbox_for_non_continuation_items(monkeypat
 
     diagnostics = redaction_routes.apply_standard_redaction(page, valid_items)
 
-    assert diagnostics["raw_removable_rects"] == 0
-    assert diagnostics["merged_removable_rects"] == 0
-    assert page.redact_annots == [(rect, None)]
+    assert diagnostics["raw_removable_rects"] == 1
+    assert diagnostics["merged_removable_rects"] == 1
+    assert page.redact_annots == [(removable_rect, None)]
+
+
+def test_apply_standard_redaction_uses_cover_for_unsafe_items(monkeypatch) -> None:
+    page = _FakePage()
+    rect = fitz.Rect(20, 20, 120, 60)
+    valid_items = [(rect, {"item_id": "p010-b002"}, "中文")]
+    covered_rects: list[fitz.Rect] = []
+
+    monkeypatch.setattr(redaction_routes, "collect_page_drawing_rects", lambda _page: [])
+    monkeypatch.setattr(redaction_routes, "page_should_use_cover_only", lambda _rects: False)
+    monkeypatch.setattr(
+        redaction_routes,
+        "item_removable_text_rects",
+        lambda _page, _item, _rect: [],
+    )
+    monkeypatch.setattr(
+        redaction_routes,
+        "draw_white_covers",
+        lambda _page, rects: covered_rects.extend(rects),
+    )
+
+    diagnostics = redaction_routes.apply_standard_redaction(page, valid_items)
+
+    assert diagnostics["route"] == "standard_redaction"
+    assert diagnostics["cover_rects"] == 1
+    assert covered_rects == [rect]
+    assert page.redact_annots == []
+    assert page.redaction_calls == []

@@ -4,7 +4,7 @@
 
 ## 1. 服务端口
 
-- 前端静态页默认运行在 `http://127.0.0.1:8080`
+- 前端静态页默认运行在 `http://127.0.0.1:40001`
 - Rust API 默认运行在 `http://127.0.0.1:41000`
 - 简便同步接口默认运行在 `http://127.0.0.1:42000`
 - 健康检查：`GET /health`
@@ -20,6 +20,8 @@
 4. OCR 完成后生成标准化 `document.v1`
 5. 进入翻译与渲染
 6. 下载 PDF / Markdown / ZIP
+
+`POST /api/v1/jobs` 的 JSON 请求体以 `source / ocr / translation / render / runtime` 分组结构为正式契约，不再宣传旧扁平字段。
 
 ## 3. 统一返回格式
 

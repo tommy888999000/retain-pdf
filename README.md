@@ -161,6 +161,7 @@ docker compose ps
 - [接口说明](doc/api-endpoints.md)
 - [存储结构](doc/api-storage.md)
 - [错误排查](doc/api-troubleshooting.md)
+- [前端状态 Smoke](doc/frontend_status_smoke.md)
 
 ### 代码与子模块说明
 

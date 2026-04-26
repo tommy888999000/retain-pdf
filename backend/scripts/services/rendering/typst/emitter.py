@@ -113,7 +113,7 @@ def _build_layout_block(block_id: str, block: RenderLayoutBlock) -> str:
         fit_height = max(8.0, min(height, block.fit_max_height_pt or height))
         return (
             f'#let {markdown_name} = "{escape_typst_string(block.content_text)}"\n'
-            f"#let {body_name} = block(width: {width}pt, height: {height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em, fit_height: {fit_height}pt) }}]\n"
+            f"#let {body_name} = block(width: {width}pt, height: {fit_height}pt)[#{{ pdftr_fit_markdown({markdown_name}, max_size: {font_size}pt, min_size: {fit_min_font}pt, max_leading: {leading}em, min_leading: {fit_min_leading}em, fit_height: {fit_height}pt) }}]\n"
             "#context {\n"
             f"  place(top + left, dx: {x0}pt, dy: {y0}pt, {body_name})\n"
             "}"

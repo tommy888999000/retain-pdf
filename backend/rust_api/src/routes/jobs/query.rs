@@ -314,12 +314,24 @@ mod tests {
         assert_eq!(detail_response.status(), StatusCode::OK);
         let detail_json = read_json(detail_response).await;
 
-        assert_eq!(detail_json["data"]["failure"]["failed_stage"], "translation_prepare");
-        assert_eq!(detail_json["data"]["failure"]["failure_code"], "auth_failed");
+        assert_eq!(
+            detail_json["data"]["failure"]["failed_stage"],
+            "translation_prepare"
+        );
+        assert_eq!(
+            detail_json["data"]["failure"]["failure_code"],
+            "auth_failed"
+        );
         assert_eq!(detail_json["data"]["failure"]["failure_category"], "auth");
-        assert_eq!(detail_json["data"]["failure"]["provider_stage"], "mineru_processing");
+        assert_eq!(
+            detail_json["data"]["failure"]["provider_stage"],
+            "mineru_processing"
+        );
         assert_eq!(detail_json["data"]["failure"]["provider_code"], "A0211");
-        assert_eq!(detail_json["data"]["failure"]["raw_excerpt"], "token expired");
+        assert_eq!(
+            detail_json["data"]["failure"]["raw_excerpt"],
+            "token expired"
+        );
         assert_eq!(
             detail_json["data"]["failure_diagnostic"]["failed_stage"],
             "translation_prepare"
@@ -487,7 +499,9 @@ mod tests {
             .expect("events response");
         assert_eq!(response.status(), StatusCode::OK);
         let events_json = read_json(response).await;
-        let items = events_json["data"]["items"].as_array().expect("items array");
+        let items = events_json["data"]["items"]
+            .as_array()
+            .expect("items array");
         let failure_item = items
             .iter()
             .find(|item| item["event"] == "failure_classified")
@@ -495,7 +509,10 @@ mod tests {
         assert_eq!(failure_item["stage"], "translation_prepare");
         assert_eq!(failure_item["provider"], "deepseek");
         assert_eq!(failure_item["provider_stage"], "llm_request");
-        assert_eq!(failure_item["payload"]["failed_stage"], "translation_prepare");
+        assert_eq!(
+            failure_item["payload"]["failed_stage"],
+            "translation_prepare"
+        );
         assert_eq!(failure_item["payload"]["failure_code"], "upstream_timeout");
         assert_eq!(failure_item["payload"]["failure_category"], "timeout");
         assert_eq!(failure_item["payload"]["provider_code"], "timeout_504");
@@ -508,7 +525,10 @@ mod tests {
         assert_eq!(terminal_item["provider"], "deepseek");
         assert_eq!(terminal_item["provider_stage"], "llm_request");
         assert_eq!(terminal_item["payload"]["status"], "failed");
-        assert_eq!(terminal_item["payload"]["failed_stage"], "translation_prepare");
+        assert_eq!(
+            terminal_item["payload"]["failed_stage"],
+            "translation_prepare"
+        );
         assert_eq!(terminal_item["payload"]["failure_code"], "upstream_timeout");
         assert_eq!(terminal_item["payload"]["failure_category"], "timeout");
     }

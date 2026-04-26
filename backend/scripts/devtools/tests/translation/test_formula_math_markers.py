@@ -1,17 +1,26 @@
 import sys
 from pathlib import Path
+import pytest
 
 REPO_SCRIPTS_ROOT = Path("/home/wxyhgk/tmp/Code/backend/scripts")
 sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
-from services.rendering.formula.math_utils import build_markdown_from_parts
-from services.rendering.formula.math_utils import build_markdown_from_direct_text
-from services.rendering.formula.math_utils import build_direct_typst_passthrough_text
-from services.rendering.formula.math_utils import promote_inline_math_like_text
-from services.rendering.formula.normalizer import normalize_formula_for_latex_math
-from services.rendering.formula.typst_formula_renderer import convert_latexish_to_typst
-from services.rendering.formula.typst_formula_renderer import compile_formula_png
-from services.rendering.formula.typst_formula_renderer import convert_latexish_to_typst
+from services.rendering.formula.core.markdown import build_markdown_from_direct_text
+from services.rendering.formula.core.markdown import build_direct_typst_passthrough_text
+from services.rendering.formula.core.markdown import promote_inline_math_like_text
+from services.rendering.formula.fallback.placeholder_markdown import build_markdown_from_parts
+from services.rendering.formula.fallback.placeholder_markdown import formula_map_lookup
+from services.rendering.formula.fallback.placeholder_markdown import split_protected_text
+from services.rendering.formula.core.inline_math import build_direct_typst_passthrough_markdown
+from services.rendering.formula.core.inline_math import sanitize_direct_typst_inline_math
+from services.rendering.formula.mode_router import build_item_render_markdown
+from services.rendering.formula.mode_router import build_render_markdown
+from services.rendering.formula.mode_router import is_direct_typst_math_mode
+from services.rendering.formula.mode_router import item_render_math_mode
+from services.rendering.formula.fallback.latex_normalizer import normalize_formula_for_latex_math
+from services.rendering.formula.fallback.png_renderer import convert_latexish_to_typst
+from services.rendering.formula.fallback.png_renderer import compile_formula_png
+from services.rendering.formula.fallback.png_renderer import convert_latexish_to_typst
 from services.translation.payload.translations import export_translation_template
 from services.translation.payload.formula_protection import formula_map_from_protected_map
 from services.translation.payload.formula_protection import protect_inline_content
@@ -20,6 +29,55 @@ from services.translation.payload.formula_protection import protect_inline_formu
 from services.translation.payload.formula_protection import re_protect_restored_formulas
 from services.translation.payload.formula_protection import restore_protected_tokens
 from services.translation.ocr.models import TextItem
+
+
+MATH_NORMALIZATION_CASES = [
+    {
+        "name": "spaced_mathrm_unit",
+        "source": r"\lambda = 1 2 2 \mathrm { n m }",
+        "expected_normalized": r"\lambda = 122 \mathrm{nm}",
+    },
+    {
+        "name": "nested_spaced_mathrm_unit",
+        "source": r"\lambda = 9 1 \mathrm { { n m } }",
+        "expected_normalized": r"\lambda = 91 \mathrm{nm}",
+    },
+    {
+        "name": "legacy_bf_letter_group",
+        "source": r"{ \bf R }",
+        "expected_normalized": r"R",
+    },
+    {
+        "name": "legacy_bf_symbol_group",
+        "source": r"{ \bf \omega }",
+        "expected_normalized": r"\omega",
+    },
+    {
+        "name": "legacy_bf_direct_group",
+        "source": r"\bf{a}",
+        "expected_normalized": r"a",
+    },
+    {
+        "name": "legacy_rm_direct_group",
+        "source": r"\rm{nm}",
+        "expected_normalized": r"nm",
+    },
+    {
+        "name": "modern_mathrm_direct_group",
+        "source": r"\mathrm{Fe}",
+        "expected_normalized": r"\mathrm{Fe}",
+    },
+    {
+        "name": "modern_mathbf_direct_symbol",
+        "source": r"\mathbf{\omega}",
+        "expected_normalized": r"\mathbf{\omega}",
+    },
+    {
+        "name": "trailing_dot_ocr_noise",
+        "source": r"1 / n ^ { \prime 2 } \approx 0 \dot )",
+        "expected_normalized": r"1 / n^{\prime 2} \approx 0.)",
+    },
+]
 
 
 def test_restored_formula_tokens_are_wrapped_as_inline_math() -> None:
@@ -69,6 +127,29 @@ def test_typst_markdown_supports_direct_math_text_without_formula_map() -> None:
     markdown = build_markdown_from_direct_text(r"转移矩阵Q_t表明，且x_t∈{0,1}^K。")
     assert "$Q_t$" in markdown
     assert "$x_t$" in markdown
+
+
+def test_render_markdown_defaults_to_placeholder_mode() -> None:
+    assert item_render_math_mode({}) == "placeholder"
+    assert not is_direct_typst_math_mode({})
+
+
+def test_render_markdown_uses_direct_typst_path_for_item() -> None:
+    item = {"math_mode": "direct_typst"}
+    markdown = build_item_render_markdown(item, r"积分$\int f(x) dx$值", [])
+    assert markdown == r"积分 $\int f(x) dx$ 值"
+
+
+def test_render_markdown_uses_formula_map_for_placeholder_mode() -> None:
+    formula_map = [{"placeholder": "<f1-17a/>", "formula_text": r"\pi"}]
+    markdown = build_render_markdown("你好<f1-17a/>，下一步", formula_map, math_mode="placeholder")
+    assert markdown == r"你好 $\pi$，下一步"
+
+
+def test_placeholder_boundary_helpers_preserve_token_splitting_and_lookup() -> None:
+    formula_map = [{"placeholder": "<f1-17a/>", "formula_text": r"\pi"}]
+    assert formula_map_lookup(formula_map) == {"<f1-17a/>": r"\pi"}
+    assert split_protected_text("你好<f1-17a/>，下一步") == ["你好", "<f1-17a/>", "，下一步"]
 
 
 def test_typst_markdown_direct_typst_conservative_mode_does_not_guess_plain_scripts() -> None:
@@ -163,6 +244,16 @@ def test_direct_typst_passthrough_rewrites_mathscr_for_mitex_compatibility() -> 
     assert markdown == r"$\mathcal{P}$ 空间"
 
 
+def test_direct_typst_sanitizer_keeps_only_inline_math_compat_cleanup() -> None:
+    markdown = sanitize_direct_typst_inline_math(r"正文 $\mathscr{P}$ 与 $\angleABC$ 保持")
+    assert markdown == r"正文 $\mathcal{P}$ 与 $\angle ABC$ 保持"
+
+
+def test_direct_typst_boundary_module_matches_legacy_passthrough_behavior() -> None:
+    text = r"使用 6-310** 基组，并保留 $E=mc^2$ 与 $\mathscr{P}$ 不变。"
+    assert build_direct_typst_passthrough_markdown(text) == build_direct_typst_passthrough_text(text)
+
+
 def test_typst_markdown_renders_superscript_citation_as_text() -> None:
     formula_map = [{"placeholder": "<f1-17a/>", "formula_text": r"^{6c}"}]
     markdown = build_markdown_from_parts("方法<f1-17a/>促使", formula_map)
@@ -252,6 +343,14 @@ def test_formula_normalizer_preserves_structural_commands() -> None:
     assert normalize_formula_for_latex_math(r"\frac { a _ { i } } { b ^ 2 }") == r"\frac { a_{i} } { b^2 }"
     assert normalize_formula_for_latex_math(r"\sqrt { x _ { i , j } }") == r"\sqrt { x_{i , j} }"
     assert normalize_formula_for_latex_math(r"\left ( x _ { i } + y ^ 2 \right )") == r"\left ( x_{i} + y^2 \right )"
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_normalized"),
+    [(case["source"], case["expected_normalized"]) for case in MATH_NORMALIZATION_CASES],
+)
+def test_formula_normalization_casebook_regressions(source: str, expected_normalized: str) -> None:
+    assert normalize_formula_for_latex_math(source) == expected_normalized
 
 
 def test_formula_map_can_be_recovered_from_protected_map() -> None:

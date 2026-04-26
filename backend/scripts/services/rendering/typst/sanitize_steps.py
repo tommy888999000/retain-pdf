@@ -4,6 +4,7 @@ from pathlib import Path
 
 from foundation.config import fonts
 from services.rendering.typst.compiler import compile_typst_overlay_pdf
+from services.rendering.typst.compiler import TypstCompileError
 from services.rendering.typst.repair import repair_items_with_llm_for_typst
 from services.rendering.typst.shared import force_plain_text_item_at_index
 from services.rendering.typst.shared import strip_formula_commands_for_item_at_index
@@ -19,6 +20,7 @@ def find_bad_item_indices(
     include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
+    failure_details: list[dict] | None = None,
 ) -> list[int]:
     bad_indices: list[int] = []
     for index in range(len(translated_items)):
@@ -33,8 +35,13 @@ def find_bad_item_indices(
                 font_paths=font_paths,
                 work_dir=work_dir,
             )
-        except RuntimeError:
+        except RuntimeError as exc:
             bad_indices.append(index)
+            if failure_details is not None:
+                detail = {"item_index": index, "item_id": translated_items[index].get("item_id", ""), "error": str(exc)}
+                if isinstance(exc, TypstCompileError):
+                    detail["compile_error"] = exc.to_dict()
+                failure_details.append(detail)
     return bad_indices
 
 
@@ -49,6 +56,7 @@ def try_selective_formula_strip(
     include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict] | None:
     patched_items = translated_items
     for index in bad_indices:
@@ -65,7 +73,9 @@ def try_selective_formula_strip(
             work_dir=work_dir,
         )
         return patched_items
-    except RuntimeError:
+    except RuntimeError as exc:
+        if diagnostics is not None:
+            diagnostics["selective_formula_strip_error"] = exc.to_dict() if isinstance(exc, TypstCompileError) else str(exc)
         return None
 
 
@@ -83,6 +93,7 @@ def try_selective_llm_repair(
     include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict] | None:
     patched_items = repair_items_with_llm_for_typst(
         translated_items,
@@ -106,7 +117,9 @@ def try_selective_llm_repair(
             work_dir=work_dir,
         )
         return patched_items
-    except RuntimeError:
+    except RuntimeError as exc:
+        if diagnostics is not None:
+            diagnostics["selective_llm_repair_error"] = exc.to_dict() if isinstance(exc, TypstCompileError) else str(exc)
         return None
 
 
@@ -121,6 +134,7 @@ def try_selective_plain_text(
     include_cover_rect: bool = True,
     font_paths: list[Path] | None = None,
     work_dir: Path | None = None,
+    diagnostics: dict | None = None,
 ) -> list[dict] | None:
     patched_items = translated_items
     for index in bad_indices:
@@ -137,5 +151,7 @@ def try_selective_plain_text(
             work_dir=work_dir,
         )
         return patched_items
-    except RuntimeError:
+    except RuntimeError as exc:
+        if diagnostics is not None:
+            diagnostics["selective_plain_text_error"] = exc.to_dict() if isinstance(exc, TypstCompileError) else str(exc)
         return None

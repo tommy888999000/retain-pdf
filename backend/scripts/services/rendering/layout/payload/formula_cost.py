@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from services.rendering.formula.normalizer import aggressively_simplify_formula_for_latex_math
+from services.rendering.formula.fallback.latex_normalizer import aggressively_simplify_formula_for_latex_math
 
 
 FORMULA_TOKEN_RE = re.compile(r"<[futnvc]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]")

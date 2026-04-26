@@ -5,6 +5,7 @@ from unittest import mock
 import re
 
 import fitz
+import pytest
 from PIL import Image
 
 
@@ -25,8 +26,11 @@ from services.rendering.redaction.text_draw import _fit_segment_layout
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
 from services.rendering.typst.book_ops import _compile_render_pages_pdf_resilient
 from services.rendering.typst.compiler import _resolved_font_paths
+from services.rendering.typst.compiler import TypstCompileError
+from services.rendering.typst.compiler import compile_typst_overlay_pdf
 from services.rendering.typst.emitter import build_typst_source_from_page_specs
 from services.rendering.typst.page_ops import apply_source_page_overlay
+from services.rendering.typst.sanitize import sanitize_items_for_typst_compile
 
 
 def _page_spec(background_pdf_path: Path | None = None) -> RenderPageSpec:
@@ -75,6 +79,67 @@ def test_typst_render_source_does_not_emit_white_cover_rects() -> None:
 def test_typst_compiler_defaults_include_backend_fonts_dir() -> None:
     resolved = _resolved_font_paths()
     assert fonts.BACKEND_FONTS_DIR in resolved
+
+
+def test_typst_compile_error_carries_structured_context() -> None:
+    completed = mock.Mock(returncode=1, stdout="", stderr="syntax error")
+    with tempfile.TemporaryDirectory() as tmp:
+        work_dir = Path(tmp)
+        with mock.patch("services.rendering.typst.compiler.subprocess.run", return_value=completed):
+            with pytest.raises(TypstCompileError) as exc_info:
+                compile_typst_overlay_pdf(
+                    200.0,
+                    300.0,
+                    [{"item_id": "b1", "bbox": [0, 0, 40, 20], "translated_text": "x", "protected_translated_text": "x"}],
+                    stem="probe",
+                    work_dir=work_dir,
+                )
+    error = exc_info.value
+    payload = error.to_dict()
+    assert payload["phase"] == "overlay_page"
+    assert payload["stem"] == "probe"
+    assert payload["return_code"] == 1
+    assert payload["stderr"] == "syntax error"
+    assert payload["typ_path"].endswith("probe.typ")
+
+
+def test_sanitize_items_collects_compile_diagnostics() -> None:
+    item = {"item_id": "b1", "bbox": [0, 0, 40, 20], "translated_text": "x", "protected_translated_text": "x"}
+
+    def _fake_compile(*args, **kwargs):
+        stem = kwargs.get("stem", "")
+        if stem.endswith("-plain"):
+            return Path("/tmp/plain.pdf")
+        raise TypstCompileError(
+            phase="overlay_page",
+            stem=stem,
+            typ_path=Path(f"/tmp/{stem}.typ"),
+            pdf_path=Path(f"/tmp/{stem}.pdf"),
+            command=["typst", "compile"],
+            return_code=1,
+            stdout="",
+            stderr="bad formula",
+            work_dir=Path("/tmp"),
+        )
+
+    diagnostics: dict = {}
+    with mock.patch("services.rendering.typst.sanitize.compile_typst_overlay_pdf", side_effect=_fake_compile), mock.patch(
+        "services.rendering.typst.sanitize_steps.compile_typst_overlay_pdf",
+        side_effect=_fake_compile,
+    ):
+        sanitized = sanitize_items_for_typst_compile(
+            200.0,
+            300.0,
+            [item],
+            stem="page-000",
+            diagnostics=diagnostics,
+        )
+
+    assert sanitized[0]["_force_plain_line"] is True
+    assert diagnostics["final_mode"] == "selective_plain_text"
+    assert diagnostics["bad_item_indices"] == [0]
+    assert diagnostics["initial_compile_error"]["phase"] == "overlay_page"
+    assert diagnostics["probe_failures"][0]["item_id"] == "b1"
 
 
 def test_typst_render_source_keeps_title_fit_inside_rect_budget() -> None:
@@ -376,6 +441,105 @@ def test_build_render_page_specs_restores_leaked_formula_tokens_before_render() 
         assert "<f1-9a9/>" not in block.content_text
         assert "<f2-797/>" not in block.content_text
         assert "$" in block.content_text
+
+
+def test_build_render_page_specs_marks_adjacent_collision_risk_for_stacked_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+
+        doc = fitz.open()
+        doc.new_page(width=200, height=300)
+        doc.save(source_pdf)
+        doc.close()
+
+        translated_pages = {
+            0: [
+                {
+                    "item_id": "p001-b001",
+                    "page_idx": 0,
+                    "block_type": "text",
+                    "bbox": [10.0, 20.0, 180.0, 60.0],
+                    "lines": [{"text": "raw"}],
+                    "source_text": "short text",
+                    "protected_source_text": "short text",
+                    "protected_translated_text": "这是一段明显会在翻译后变长很多很多很多的中文正文，用来模拟上方文本块在渲染时向下扩张。",
+                },
+                {
+                    "item_id": "p001-b002",
+                    "page_idx": 0,
+                    "block_type": "text",
+                    "bbox": [10.0, 61.5, 180.0, 95.0],
+                    "lines": [{"text": "raw"}],
+                    "source_text": "below text",
+                    "protected_source_text": "below text",
+                    "protected_translated_text": "下方块",
+                },
+            ]
+        }
+
+        page_specs = build_render_page_specs(
+            source_pdf_path=source_pdf,
+            translated_pages=translated_pages,
+        )
+
+        upper, lower = page_specs[0].blocks
+        assert upper.block_id == "item-p001-b001"
+        assert lower.block_id == "item-p001-b002"
+        assert upper.fit_to_box is True
+        expected_limit = lower.content_rect[1] - upper.content_rect[1] - 0.9
+        assert upper.fit_max_height_pt <= expected_limit + 0.2
+
+
+def test_build_render_page_specs_uses_cover_bbox_gap_for_tight_stacked_blocks() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        source_pdf = root / "source.pdf"
+
+        doc = fitz.open()
+        doc.new_page(width=240, height=320)
+        doc.save(source_pdf)
+        doc.close()
+
+        translated_pages = {
+            0: [
+                {
+                    "item_id": "p001-b001",
+                    "page_idx": 0,
+                    "block_type": "text",
+                    "bbox": [20.0, 40.0, 210.0, 110.0],
+                    "lines": [{"text": "raw"}],
+                    "source_text": "upper",
+                    "protected_source_text": "upper",
+                    "protected_translated_text": (
+                        "这是一段会在渲染时变得明显更长的中文正文，用来模拟上方块在原始 OCR 框已经"
+                        "贴到下方块时，仍然需要继续压缩高度避免覆盖下一块。"
+                    ),
+                },
+                {
+                    "item_id": "p001-b002",
+                    "page_idx": 0,
+                    "block_type": "text",
+                    "bbox": [20.0, 109.7, 210.0, 152.0],
+                    "lines": [{"text": "raw"}],
+                    "source_text": "lower",
+                    "protected_source_text": "lower",
+                    "protected_translated_text": "下方块",
+                },
+            ]
+        }
+
+        page_specs = build_render_page_specs(
+            source_pdf_path=source_pdf,
+            translated_pages=translated_pages,
+        )
+
+        upper, lower = page_specs[0].blocks
+        upper_height = upper.content_rect[3] - upper.content_rect[1]
+        assert upper.fit_to_box is True
+        assert upper.skip_reason == "adjacent_collision_risk"
+        assert upper.fit_max_height_pt <= upper_height - 10.0
+        assert lower.content_rect[1] >= 120.0
 
 
 def test_background_render_resilient_compile_sanitizes_on_failure() -> None:

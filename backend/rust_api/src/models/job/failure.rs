@@ -193,26 +193,50 @@ impl JobFailureInfo {
             "failure_code".to_string(),
             Value::String(self.failure_code_value().to_string()),
         );
-        if let Some(value) = self.failure_category.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .failure_category
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("failure_category".to_string(), Value::String(value.clone()));
         }
-        if let Some(value) = self.provider_stage.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .provider_stage
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("provider_stage".to_string(), Value::String(value.clone()));
         }
-        if let Some(value) = self.provider_code.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .provider_code
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("provider_code".to_string(), Value::String(value.clone()));
         }
-        if let Some(value) = self.provider.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .provider
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("provider".to_string(), Value::String(value.clone()));
         }
         if !self.summary.trim().is_empty() {
             object.insert("summary".to_string(), Value::String(self.summary.clone()));
         }
-        if let Some(value) = self.root_cause.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .root_cause
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("root_cause".to_string(), Value::String(value.clone()));
         }
         object.insert("retryable".to_string(), Value::Bool(self.retryable));
-        if let Some(value) = self.raw_excerpt.as_ref().filter(|value| !value.trim().is_empty()) {
+        if let Some(value) = self
+            .raw_excerpt
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        {
             object.insert("raw_excerpt".to_string(), Value::String(value.clone()));
         }
         Value::Object(object)

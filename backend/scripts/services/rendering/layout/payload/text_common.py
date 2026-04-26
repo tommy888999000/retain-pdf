@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from services.rendering.formula.math_utils import build_plain_text
+from services.rendering.formula.core.markdown import build_plain_text
 from services.translation.item_reader import item_is_bodylike
 from services.translation.payload.formula_protection import PROTECTED_TOKEN_RE
 from services.translation.payload.formula_protection import protected_map_from_formula_map

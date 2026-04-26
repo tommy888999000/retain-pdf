@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from services.rendering.formula.mode_router import is_direct_typst_math_mode
 from services.rendering.layout.payload.metrics import VERTICAL_COLLISION_GAP_PT
 from services.rendering.layout.payload.metrics import block_metrics
 from services.rendering.layout.payload.metrics import estimated_render_height_pt
@@ -82,7 +83,7 @@ def detect_and_drop_suspicious_ocr_glued_blocks(
             continue
         if str(current.get("translation_unit_kind", "") or "") == "group":
             continue
-        if str(current.get("math_mode", "placeholder") or "placeholder").strip() == "direct_typst":
+        if is_direct_typst_math_mode(current):
             continue
         if bool(current.get("render_formula_map")):
             continue

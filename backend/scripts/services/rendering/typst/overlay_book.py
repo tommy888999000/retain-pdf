@@ -10,6 +10,7 @@ import fitz
 from foundation.config import fonts
 from foundation.config import paths
 from services.rendering.typst.overlay_compile import compile_page_overlay_pdf
+from services.rendering.typst.compiler import TypstCompileError
 from services.rendering.typst.page_ops import apply_source_page_overlay
 from services.rendering.typst.page_ops import mark_image_page_overlay_mode
 from services.rendering.typst.page_ops import overlay_pages_from_single_pdf
@@ -64,28 +65,47 @@ def overlay_pages_via_page_fallback(
     apply_source_overlay: bool = True,
 ) -> dict[str, object]:
     overlay_paths: dict[int, Path] = {}
+    page_compile_diagnostics: dict[int, dict[str, object]] = {}
     max_workers = compile_workers or default_compile_workers(len(page_specs))
     compile_started = time.perf_counter()
+
+    def _compile_page(page_idx: int, page_width: float, page_height: float, items: list[dict], page_stem: str) -> tuple[Path, dict]:
+        compile_diag = {"page_index": page_idx, "stem": page_stem}
+        path = compile_page_overlay_pdf(
+            page_width=page_width,
+            page_height=page_height,
+            translated_items=items,
+            stem=page_stem,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            font_family=font_family,
+            font_paths=font_paths,
+            temp_root=temp_root,
+            diagnostics=compile_diag,
+        )
+        return path, compile_diag
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_map = {
             executor.submit(
-                compile_page_overlay_pdf,
-                page_width=page_width,
-                page_height=page_height,
-                translated_items=items,
-                stem=page_stem,
-                api_key=api_key,
-                model=model,
-                base_url=base_url,
-                font_family=font_family,
-                font_paths=font_paths,
-                temp_root=temp_root,
-            ): page_idx
+                _compile_page,
+                page_idx,
+                page_width,
+                page_height,
+                items,
+                page_stem,
+            ): (page_idx, page_stem)
             for page_idx, page_width, page_height, items, page_stem in page_specs
         }
         for future in as_completed(future_map):
-            page_idx = future_map[future]
-            overlay_paths[page_idx] = future.result()
+            page_idx, page_stem = future_map[future]
+            try:
+                overlay_path, compile_diag = future.result()
+            except RuntimeError as exc:
+                raise RuntimeError(f"page overlay compile failed page={page_idx + 1} stem={page_stem}: {exc}") from exc
+            overlay_paths[page_idx] = overlay_path
+            page_compile_diagnostics[page_idx] = compile_diag
     diagnostics = {
         "page_overlay_compile_elapsed_seconds": time.perf_counter() - compile_started,
         "pages": [],
@@ -96,6 +116,7 @@ def overlay_pages_via_page_fallback(
         "cover_rects": 0,
         "item_fast_cover_count": 0,
         "fast_page_cover_pages": 0,
+        "page_compile_diagnostics": [],
     }
     total_pages = len(ordered_page_indices)
     for overlay_page_idx, page_idx in enumerate(ordered_page_indices):
@@ -109,6 +130,9 @@ def overlay_pages_via_page_fallback(
             "source_overlay_elapsed_seconds": 0.0,
             "overlay_merge_elapsed_seconds": 0.0,
         }
+        compile_diag = page_compile_diagnostics.get(page_idx)
+        if compile_diag is not None:
+            diagnostics["page_compile_diagnostics"].append(compile_diag)
         if apply_source_overlay:
             redaction = apply_source_page_overlay(page, translated_pages[page_idx], cover_only=cover_only)
             page_diag.update(redaction)
@@ -141,6 +165,7 @@ def sanitize_overlay_page_specs(
     font_family: str = fonts.TYPST_DEFAULT_FONT_FAMILY,
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
+    page_diagnostics: list[dict] | None = None,
 ) -> tuple[list[tuple[int, float, float, list[dict]]], dict[int, list[dict]], list[tuple[int, float, float, list[dict], str]]]:
     sanitized_page_specs = sanitize_page_specs_for_typst_book_overlay(
         page_specs,
@@ -150,6 +175,7 @@ def sanitize_overlay_page_specs(
         font_family=font_family,
         font_paths=font_paths,
         work_dir=(temp_root or paths.OUTPUT_DIR) / "book-sanitize",
+        page_diagnostics=page_diagnostics,
     )
     sanitized_book_specs = [
         (page_width, page_height, items) for _, page_width, page_height, items, _ in sanitized_page_specs

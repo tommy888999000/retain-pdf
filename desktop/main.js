@@ -15,6 +15,94 @@ let tray = null;
 let isQuitting = false;
 let closeToTrayHintShown = false;
 
+const DEFAULT_OCR_PROVIDER = "paddle";
+const DEFAULT_MODEL = "deepseek-v4-flash";
+const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
+
+function createDefaultDesktopConfig() {
+  return {
+    firstRunCompleted: false,
+    ocrProvider: DEFAULT_OCR_PROVIDER,
+    mineruToken: "",
+    paddleToken: "",
+    modelApiKey: "",
+    model: DEFAULT_MODEL,
+    baseUrl: DEFAULT_BASE_URL,
+    developerConfig: {},
+    closeToTrayHintShown: false,
+  };
+}
+
+function hasOwn(target, key) {
+  return Object.prototype.hasOwnProperty.call(target, key);
+}
+
+function normalizeOcrProvider(value) {
+  return value === "paddle" ? "paddle" : DEFAULT_OCR_PROVIDER;
+}
+
+function normalizeTrimmedString(value, fallback = "") {
+  return typeof value === "string" ? value.trim() : fallback;
+}
+
+function normalizeDesktopConfig(raw = {}) {
+  const defaults = createDefaultDesktopConfig();
+  return {
+    firstRunCompleted: !!raw.firstRunCompleted,
+    ocrProvider: normalizeOcrProvider(raw.ocrProvider),
+    mineruToken: normalizeTrimmedString(raw.mineruToken, defaults.mineruToken),
+    paddleToken: normalizeTrimmedString(raw.paddleToken, defaults.paddleToken),
+    modelApiKey: normalizeTrimmedString(raw.modelApiKey, defaults.modelApiKey),
+    model: normalizeTrimmedString(raw.model, defaults.model),
+    baseUrl: normalizeTrimmedString(raw.baseUrl, defaults.baseUrl),
+    developerConfig: typeof raw.developerConfig === "object" && raw.developerConfig !== null
+      ? { ...raw.developerConfig }
+      : {},
+    closeToTrayHintShown: !!raw.closeToTrayHintShown,
+  };
+}
+
+function mergeDesktopConfig(currentConfig, payload = {}) {
+  const merged = { ...currentConfig };
+  const runtimeConfig = typeof payload.runtimeConfig === "object" && payload.runtimeConfig !== null
+    ? payload.runtimeConfig
+    : {};
+  const keys = [
+    "ocrProvider",
+    "mineruToken",
+    "paddleToken",
+    "modelApiKey",
+    "model",
+    "baseUrl",
+    "closeToTrayHintShown",
+  ];
+  for (const key of keys) {
+    if (hasOwn(payload, key)) {
+      merged[key] = payload[key];
+      continue;
+    }
+    if (hasOwn(runtimeConfig, key)) {
+      merged[key] = runtimeConfig[key];
+    }
+  }
+  if (typeof payload.developerConfig === "object" && payload.developerConfig !== null) {
+    merged.developerConfig = { ...payload.developerConfig };
+  }
+  if (hasOwn(payload, "firstRunCompleted")) {
+    merged.firstRunCompleted = !!payload.firstRunCompleted;
+  }
+  return normalizeDesktopConfig(merged);
+}
+
+function buildBrowserConfig(config) {
+  return {
+    ocrProvider: config.ocrProvider || DEFAULT_OCR_PROVIDER,
+    mineruToken: config.mineruToken || "",
+    paddleToken: config.paddleToken || "",
+    modelApiKey: config.modelApiKey || "",
+  };
+}
+
 function resolveDesktopConfigPath() {
   return path.join(app.getPath("userData"), "desktop-config.json");
 }
@@ -22,40 +110,19 @@ function resolveDesktopConfigPath() {
 function loadDesktopConfig() {
   const configPath = resolveDesktopConfigPath();
   if (!fs.existsSync(configPath)) {
-    return {
-      firstRunCompleted: false,
-      mineruToken: "",
-      modelApiKey: "",
-      closeToTrayHintShown: false,
-    };
+    return createDefaultDesktopConfig();
   }
   try {
     const raw = fs.readFileSync(configPath, "utf8");
-    const parsed = JSON.parse(raw);
-    return {
-      firstRunCompleted: !!parsed.firstRunCompleted,
-      mineruToken: typeof parsed.mineruToken === "string" ? parsed.mineruToken : "",
-      modelApiKey: typeof parsed.modelApiKey === "string" ? parsed.modelApiKey : "",
-      closeToTrayHintShown: !!parsed.closeToTrayHintShown,
-    };
+    return normalizeDesktopConfig(JSON.parse(raw));
   } catch (error) {
     console.error(`[desktop] failed to load desktop config: ${error?.message || error}`);
-    return {
-      firstRunCompleted: false,
-      mineruToken: "",
-      modelApiKey: "",
-      closeToTrayHintShown: false,
-    };
+    return createDefaultDesktopConfig();
   }
 }
 
 function saveDesktopConfig(payload = {}) {
-  const nextConfig = {
-    firstRunCompleted: true,
-    mineruToken: typeof payload.mineruToken === "string" ? payload.mineruToken.trim() : "",
-    modelApiKey: typeof payload.modelApiKey === "string" ? payload.modelApiKey.trim() : "",
-    closeToTrayHintShown: !!payload.closeToTrayHintShown,
-  };
+  const nextConfig = mergeDesktopConfig(loadDesktopConfig(), payload);
   const configPath = resolveDesktopConfigPath();
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   fs.writeFileSync(configPath, `${JSON.stringify(nextConfig, null, 2)}\n`, "utf8");
@@ -66,10 +133,10 @@ function buildDesktopRuntimeConfig(config) {
   return {
     apiBase: "http://127.0.0.1:41000",
     xApiKey: DESKTOP_API_KEY,
-    mineruToken: config.mineruToken || "",
-    modelApiKey: config.modelApiKey || "",
-    model: "deepseek-chat",
-    baseUrl: "https://api.deepseek.com/v1",
+    ...buildBrowserConfig(config),
+    model: config.model || DEFAULT_MODEL,
+    baseUrl: config.baseUrl || DEFAULT_BASE_URL,
+    developerConfig: config.developerConfig || {},
   };
 }
 
@@ -719,6 +786,9 @@ ipcMain.handle("desktop:invoke", async (_event, command, args = {}) => {
       const config = loadDesktopConfig();
       return {
         firstRunCompleted: config.firstRunCompleted,
+        closeToTrayHintShown: config.closeToTrayHintShown,
+        browserConfig: buildBrowserConfig(config),
+        developerConfig: config.developerConfig || {},
         runtimeConfig: buildDesktopRuntimeConfig(config),
       };
     }
@@ -726,6 +796,9 @@ ipcMain.handle("desktop:invoke", async (_event, command, args = {}) => {
       const config = saveDesktopConfig(args?.payload || {});
       return {
         firstRunCompleted: config.firstRunCompleted,
+        closeToTrayHintShown: config.closeToTrayHintShown,
+        browserConfig: buildBrowserConfig(config),
+        developerConfig: config.developerConfig || {},
         runtimeConfig: buildDesktopRuntimeConfig(config),
       };
     }

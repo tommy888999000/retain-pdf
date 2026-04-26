@@ -1,4 +1,5 @@
 import { $ } from "../../dom.js";
+import { buildApiUrl } from "../../config.js";
 
 export function mountUploadFeature({
   state,
@@ -194,8 +195,9 @@ export function mountUploadFeature({
     $("upload-status")?.classList.remove("hidden");
 
     try {
+      const uploadUrl = buildApiUrl(apiPrefix, "uploads");
       const payload = await submitUploadRequest(
-        `${apiBase()}${apiPrefix}/uploads`,
+        uploadUrl,
         collectUploadFormData(file),
         setUploadProgress,
       );

@@ -1,7 +1,7 @@
 export const API_PREFIX = "/api/v1";
 export const DEFAULT_FILE_LABEL = "点击选择文件或拖到这里";
 export const DEFAULT_MODE = "sci";
-export const DEFAULT_MODEL = "deepseek-chat";
+export const DEFAULT_MODEL = "deepseek-v4-flash";
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_LANGUAGE = "ch";
 export const DEFAULT_RULE_PROFILE = "general_sci";

@@ -52,6 +52,69 @@ function normalizeRoutePath(value) {
   return `${value ?? ""}`.trim();
 }
 
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function diagnosticsOf(value) {
+  const item = value && typeof value === "object" ? value : {};
+  const nested = item.translation_diagnostics;
+  return nested && typeof nested === "object" ? nested : {};
+}
+
+function pageNumberOf(value, fallback = "-") {
+  const pageNumber = Number(value?.page_number);
+  if (Number.isFinite(pageNumber) && pageNumber > 0) {
+    return `${pageNumber}`;
+  }
+  const pageIdx = Number(value?.page_idx);
+  if (Number.isFinite(pageIdx) && pageIdx >= 0) {
+    return `${pageIdx + 1}`;
+  }
+  return fallback;
+}
+
+function finalStatusOf(value) {
+  const diagnostics = diagnosticsOf(value);
+  return firstNonEmptyText(value?.final_status, diagnostics.final_status);
+}
+
+function fallbackToOf(value) {
+  const diagnostics = diagnosticsOf(value);
+  return firstNonEmptyText(value?.fallback_to, diagnostics.fallback_to);
+}
+
+function degradationReasonOf(value) {
+  const diagnostics = diagnosticsOf(value);
+  return firstNonEmptyText(value?.degradation_reason, diagnostics.degradation_reason);
+}
+
+function routePathOf(value) {
+  const diagnostics = diagnosticsOf(value);
+  return value?.route_path ?? diagnostics.route_path ?? [];
+}
+
+function errorTypesOf(value) {
+  if (Array.isArray(value?.error_types) && value.error_types.length) {
+    return value.error_types;
+  }
+  const diagnostics = diagnosticsOf(value);
+  if (Array.isArray(diagnostics.error_types) && diagnostics.error_types.length) {
+    return diagnostics.error_types;
+  }
+  if (Array.isArray(diagnostics.error_trace) && diagnostics.error_trace.length) {
+    return diagnostics.error_trace
+      .map((entry) => firstNonEmptyText(entry?.type, entry?.error_type))
+      .filter(Boolean);
+  }
+  return [];
+}
+
 function finalStatusLabel(value) {
   switch (`${value || ""}`.trim()) {
     case "translated":
@@ -234,11 +297,11 @@ export function mountStatusDetailFeature({
         : "第 0 / 0 页";
     const markup = list.map((item) => {
       const active = item.item_id === translationState.selectedItemId;
-      const routePath = normalizeRoutePath(item.route_path);
-      const errorTypes = Array.isArray(item.error_types) && item.error_types.length
-        ? item.error_types.join(", ")
-        : "-";
-      const degradationReason = `${item.degradation_reason || ""}`.trim() || "-";
+      const routePath = normalizeRoutePath(routePathOf(item));
+      const errorTypes = errorTypesOf(item);
+      const errorLabel = errorTypes.length ? errorTypes.join(", ") : "-";
+      const degradationReason = degradationReasonOf(item) || "-";
+      const finalStatus = finalStatusOf(item);
       return `
         <button
           type="button"
@@ -247,18 +310,18 @@ export function mountStatusDetailFeature({
         >
           <div class="translation-item-card-top">
             <span class="translation-item-id mono">${escapeHtml(item.item_id || "-")}</span>
-            <span class="translation-item-status ${finalStatusClass(item.final_status)}">${escapeHtml(finalStatusLabel(item.final_status))}</span>
+            <span class="translation-item-status ${finalStatusClass(finalStatus)}">${escapeHtml(finalStatusLabel(finalStatus))}</span>
           </div>
           <div class="translation-item-card-meta">
-            <span class="translation-item-chip">第 ${escapeHtml(item.page_number || "-")} 页</span>
+            <span class="translation-item-chip">第 ${escapeHtml(pageNumberOf(item))} 页</span>
             <span class="translation-item-chip">${escapeHtml(item.block_type || "-")}</span>
             <span class="translation-item-chip">${escapeHtml(item.classification_label || "-")}</span>
           </div>
           <div class="translation-item-card-route"><strong>route</strong> ${escapeHtml(routePath || "-")}</div>
-          <div class="translation-item-card-preview">${escapeHtml(previewText(item.source_preview))}</div>
+          <div class="translation-item-card-preview">${escapeHtml(previewText(item.source_preview || item.source_text || ""))}</div>
           <div class="translation-item-card-footer">
-            <span><strong>fallback</strong> ${escapeHtml(item.fallback_to || "-")}</span>
-            <span><strong>error</strong> ${escapeHtml(errorTypes)}</span>
+            <span><strong>fallback</strong> ${escapeHtml(fallbackToOf(item) || "-")}</span>
+            <span><strong>error</strong> ${escapeHtml(errorLabel)}</span>
           </div>
           <div class="translation-item-card-route"><strong>degradation</strong> ${escapeHtml(degradationReason)}</div>
         </button>
@@ -320,31 +383,34 @@ export function mountStatusDetailFeature({
       return;
     }
     const item = payload.item || {};
-    const diagnostics = item.translation_diagnostics || {};
-    const routePath = normalizeRoutePath(diagnostics.route_path);
+    const diagnostics = diagnosticsOf(item);
+    const routePath = normalizeRoutePath(routePathOf(item));
+    const pageNumber = pageNumberOf(payload, pageNumberOf(item));
+    const finalStatus = finalStatusOf(item) || finalStatusOf(payload) || "-";
     const markup = `
       <div class="detail-info-list translation-detail-grid">
         ${renderField("item_id", payload.item_id || item.item_id || "-")}
-        ${renderField("page_number", payload.page_number ?? "-")}
+        ${renderField("page_number", pageNumber)}
         ${renderField("block_type", item.block_type || "-")}
         ${renderField("math_mode", item.math_mode || "-")}
         ${renderField("classification_label", item.classification_label || "-")}
         ${renderField("should_translate", boolLabel(item.should_translate))}
         ${renderField("skip_reason", item.skip_reason || "-")}
-        ${renderField("final_status", item.final_status || diagnostics.final_status || "-")}
+        ${renderField("final_status", finalStatus)}
         ${renderField("route_path", routePath || "-")}
-        ${renderField("fallback_to", diagnostics.fallback_to || "-")}
-        ${renderField("degradation_reason", diagnostics.degradation_reason || "-")}
+        ${renderField("fallback_to", fallbackToOf(item) || "-")}
+        ${renderField("degradation_reason", degradationReasonOf(item) || "-")}
       </div>
       ${renderTextBlock("原文", item.source_text || "")}
-      ${renderTextBlock("落盘翻译", item.translated_text || "")}
+      ${renderTextBlock("落盘翻译", item.translated_text || item.translation_unit_translated_text || item.group_translated_text || "")}
+      ${renderTextBlock("保护后译文", item.protected_translated_text || item.translation_unit_protected_translated_text || item.group_protected_translated_text || "")}
       ${renderTextBlock("translation_diagnostics", diagnostics || {})}
     `;
     component?.renderTranslationItemDetail({
       loading: false,
       hasItem: true,
       markup,
-      meta: `${payload.item_id || "-"} · 第 ${payload.page_number ?? "-"} 页`,
+      meta: `${payload.item_id || item.item_id || "-"} · 第 ${pageNumber} 页`,
       replayEnabled: true,
     });
   }
@@ -401,7 +467,7 @@ export function mountStatusDetailFeature({
       return;
     }
     const nextItemId = selectFirst && translationState.list.length
-      ? translationState.list[0].item_id
+      ? `${translationState.list[0].item_id || ""}`.trim()
       : "";
     translationState.selectedItemId = nextItemId;
     translationState.selectedItem = null;

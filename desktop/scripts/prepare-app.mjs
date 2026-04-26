@@ -152,7 +152,7 @@ function verifyBundledPythonRuntime(root) {
     [
       "-c",
       [
-        "import fitz, requests, pikepdf, PIL",
+        "import fitz, requests, pikepdf, PIL, urllib3",
         "print('python_bundle_import_check=ok')",
       ].join("; "),
     ],
@@ -340,19 +340,17 @@ if (fs.existsSync(desktopConstantsPath)) {
     /export const DEFAULT_WORKERS = \d+;/,
     "export const DEFAULT_WORKERS = 100;",
   );
-  desktopConstants = desktopConstants.replace(
-    /export const DEFAULT_COMPILE_WORKERS = \d+;/,
-    "export const DEFAULT_COMPILE_WORKERS = 2;",
-  );
   fs.writeFileSync(desktopConstantsPath, desktopConstants, "utf8");
 }
 
 const desktopRuntimeConfig = `window.__FRONT_RUNTIME_CONFIG__ = {
   apiBase: "http://127.0.0.1:41000",
   xApiKey: "retain-pdf-desktop",
+  ocrProvider: "paddle",
   mineruToken: "",
+  paddleToken: "",
   modelApiKey: "",
-  model: "deepseek-chat",
+  model: "deepseek-v4-flash",
   baseUrl: "https://api.deepseek.com/v1",
 };
 `;

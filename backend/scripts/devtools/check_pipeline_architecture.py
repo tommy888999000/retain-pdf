@@ -58,10 +58,6 @@ ENTRYPOINT_IMPORT_ALLOWLIST: dict[Path, tuple[str, ...]] = {
         "from services.rendering.api.typst_page_renderer import",
         "from services.translation.payload import",
     ),
-    Path("check_math_cases.py"): (
-        "from services.rendering.formula.casebook import",
-        "from services.rendering.formula.normalizer import",
-    ),
     Path("diagnose_failure_with_ai.py"): (
         "from services.translation.llm.shared.provider_runtime import",
         "from services.translation.llm.shared.response_parsing import",

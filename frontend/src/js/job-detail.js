@@ -121,6 +121,59 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function firstNonEmptyText(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function numberOrNull(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function summarizeArtifactLabel(key) {
+  switch (`${key || ""}`.trim()) {
+    case "source_pdf":
+      return "源 PDF";
+    case "translated_pdf":
+      return "译后 PDF";
+    case "typst_render_pdf":
+      return "Typst 渲染 PDF";
+    case "markdown_raw":
+      return "Markdown Raw";
+    case "markdown_images_dir":
+      return "Markdown 图片目录";
+    case "markdown_bundle_zip":
+      return "Markdown Bundle";
+    case "normalized_document_json":
+      return "Normalized Document";
+    case "normalization_report_json":
+      return "Normalization Report";
+    case "translation_manifest_json":
+      return "Translation Manifest";
+    case "translation_diagnostics_json":
+      return "Translation Diagnostics";
+    case "translation_debug_index_json":
+      return "Translation Debug Index";
+    case "provider_result_json":
+      return "Provider Result";
+    case "provider_bundle_zip":
+      return "Provider Bundle";
+    case "provider_raw_dir":
+      return "Provider Raw Dir";
+    case "pipeline_summary":
+      return "Pipeline Summary";
+    case "events_jsonl":
+      return "Events JSONL";
+    default:
+      return `${key || "-"}`.trim() || "-";
+  }
+}
+
 function summarizeStageName(stage, detail) {
   const detailText = `${detail || ""}`.trim();
   return detailText || `${stage || "-"}`.trim() || "-";
@@ -234,13 +287,20 @@ function renderArtifactsManifest(manifestPayload) {
     "source_pdf",
     "translated_pdf",
     "pdf",
+    "typst_render_pdf",
     "markdown_raw",
     "markdown_images_dir",
     "markdown_bundle_zip",
     "normalized_document_json",
     "normalization_report_json",
     "translation_manifest_json",
+    "translation_diagnostics_json",
+    "translation_debug_index_json",
     "provider_result_json",
+    "provider_bundle_zip",
+    "provider_raw_dir",
+    "pipeline_summary",
+    "events_jsonl",
   ];
   const orderMap = new Map(preferredOrder.map((key, index) => [key, index]));
   items.sort((left, right) => {
@@ -252,16 +312,28 @@ function renderArtifactsManifest(manifestPayload) {
     return `${left?.artifact_key || ""}`.localeCompare(`${right?.artifact_key || ""}`);
   });
   container.innerHTML = items.map((item) => {
-    const resource = item?.resource_path || item?.resource_url || "-";
+    const resource = firstNonEmptyText(item?.resource_url, item?.resource_path, item?.relative_path) || "-";
     const readyLabel = item?.ready ? "ready" : "pending";
     const readyClass = item?.ready ? "is-ready" : "is-pending";
+    const topLabel = summarizeArtifactLabel(item?.artifact_key);
+    const metaBits = [
+      firstNonEmptyText(item?.artifact_group) || "-",
+      firstNonEmptyText(item?.artifact_kind) || "-",
+      formatSizeBytes(item?.size_bytes),
+    ];
+    const extraBits = [
+      firstNonEmptyText(item?.source_stage),
+      firstNonEmptyText(item?.content_type),
+    ].filter(Boolean);
     return `
       <article class="detail-artifact-row">
         <div class="detail-artifact-top">
-          <div class="detail-artifact-key mono">${escapeHtml(item?.artifact_key || "-")}</div>
+          <div class="detail-artifact-key mono">${escapeHtml(topLabel)}</div>
           <span class="detail-artifact-chip ${readyClass}">${escapeHtml(readyLabel)}</span>
         </div>
-        <div class="detail-artifact-meta">${escapeHtml(item?.artifact_group || "-")} · ${escapeHtml(item?.artifact_kind || "-")} · ${escapeHtml(formatSizeBytes(item?.size_bytes))}</div>
+        <div class="detail-artifact-meta">${escapeHtml(metaBits.join(" · "))}</div>
+        ${extraBits.length ? `<div class="detail-artifact-meta">${escapeHtml(extraBits.join(" · "))}</div>` : ""}
+        <div class="detail-artifact-meta mono">${escapeHtml(item?.artifact_key || "-")}</div>
         <div class="detail-artifact-meta mono">${escapeHtml(resource)}</div>
       </article>
     `;
@@ -270,12 +342,38 @@ function renderArtifactsManifest(manifestPayload) {
 
 function renderMarkdownContract(job, markdownPayload = null) {
   const contract = resolveJobMarkdownContract(job);
-  const rawUrl = `${markdownPayload?.raw_url || markdownPayload?.raw_path || contract.rawUrl || ""}`.trim();
-  const imagesBaseUrl = `${markdownPayload?.images_base_url || markdownPayload?.images_base_path || contract.imagesBaseUrl || ""}`.trim();
-  setText("detail-markdown-json-url", contract.jsonUrl || "-");
+  const markdownArtifact = job?.artifacts?.markdown || {};
+  const rawUrl = firstNonEmptyText(
+    markdownPayload?.raw_url,
+    markdownPayload?.raw_path,
+    markdownArtifact.raw_url,
+    markdownArtifact.raw_path,
+    job?.actions?.open_markdown_raw?.url,
+    job?.actions?.open_markdown_raw?.path,
+    contract.rawUrl,
+  );
+  const jsonUrl = firstNonEmptyText(
+    markdownPayload?.json_url,
+    markdownPayload?.json_path,
+    markdownArtifact.json_url,
+    markdownArtifact.json_path,
+    job?.actions?.open_markdown?.url,
+    job?.actions?.open_markdown?.path,
+    contract.jsonUrl,
+  );
+  const imagesBaseUrl = firstNonEmptyText(
+    markdownPayload?.images_base_url,
+    markdownPayload?.images_base_path,
+    markdownArtifact.images_base_url,
+    markdownArtifact.images_base_path,
+    job?.artifacts?.markdown_images_base_url,
+    contract.imagesBaseUrl,
+  );
+  const content = typeof markdownPayload?.content === "string" ? markdownPayload.content : "";
+  setText("detail-markdown-json-url", jsonUrl || "-");
   setText("detail-markdown-raw-url", rawUrl || "-");
   setText("detail-markdown-images-base-url", imagesBaseUrl || "-");
-  setActionLink("detail-markdown-json-btn", contract.jsonUrl, contract.ready && !!contract.jsonUrl);
+  setActionLink("detail-markdown-json-btn", jsonUrl, contract.ready && !!jsonUrl);
   setActionLink("detail-markdown-raw-btn", rawUrl, contract.ready && !!rawUrl);
   if (!contract.ready) {
     revokeMarkdownImageUrls();
@@ -294,10 +392,19 @@ function renderMarkdownContract(job, markdownPayload = null) {
     setText("detail-markdown-status", "已发布，正在读取内容…");
     return;
   }
-  const refs = collectMarkdownImageRefs(markdownPayload.content);
-  setText("detail-markdown-status", "已加载 /markdown JSON");
+  const refs = collectMarkdownImageRefs(content);
+  const fileName = firstNonEmptyText(markdownPayload?.file_name, markdownArtifact.file_name);
+  const sizeText = formatSizeBytes(markdownPayload?.size_bytes ?? markdownArtifact.size_bytes);
+  const statusBits = ["已加载 /markdown JSON"];
+  if (fileName) {
+    statusBits.push(fileName);
+  }
+  if (sizeText !== "-") {
+    statusBits.push(sizeText);
+  }
+  setText("detail-markdown-status", statusBits.join(" · "));
   setText("detail-markdown-image-count", `${refs.length}`);
-  setText("detail-markdown-preview", truncatePreview(markdownPayload.content));
+  setText("detail-markdown-preview", truncatePreview(content));
 }
 
 async function renderMarkdownImagePreview(markdownPayload, imagesBaseUrl) {
@@ -396,14 +503,40 @@ function renderEvents(eventsPayload) {
   list.classList.remove("hidden");
   list.innerHTML = items.map((item) => {
     const payloadText = formatEventPayload(item.payload);
+    const metaBits = [
+      `#${item?.seq ?? "-"}`,
+      formatEventTimestamp(item.ts),
+      firstNonEmptyText(item?.stage_detail, item?.stage) || "-",
+    ];
+    const contextBits = [
+      firstNonEmptyText(item?.provider),
+      firstNonEmptyText(item?.provider_stage),
+      firstNonEmptyText(item?.event_type),
+    ].filter(Boolean);
+    const statsBits = [];
+    const progressCurrent = numberOrNull(item?.progress_current);
+    const progressTotal = numberOrNull(item?.progress_total);
+    if (progressCurrent !== null || progressTotal !== null) {
+      statsBits.push(`progress ${progressCurrent ?? "-"} / ${progressTotal ?? "-"}`);
+    }
+    const retryCount = numberOrNull(item?.retry_count);
+    if (retryCount !== null) {
+      statsBits.push(`retry ${retryCount}`);
+    }
+    const elapsedMs = numberOrNull(item?.elapsed_ms);
+    if (elapsedMs !== null) {
+      statsBits.push(`elapsed ${formatRuntimeDuration(elapsedMs)}`);
+    }
     return `
       <article class="detail-event-item">
         <div class="detail-event-top">
           <div class="detail-event-title">${escapeHtml(item.event || "-")}</div>
           <div class="detail-event-title">${escapeHtml(item.level || "-")}</div>
         </div>
-        <div class="detail-event-meta">${escapeHtml(formatEventTimestamp(item.ts))} · ${escapeHtml(item.stage || "-")}</div>
+        <div class="detail-event-meta">${escapeHtml(metaBits.join(" · "))}</div>
+        ${contextBits.length ? `<div class="detail-event-meta">${escapeHtml(contextBits.join(" · "))}</div>` : ""}
         <div class="detail-event-meta">${escapeHtml(item.message || "-")}</div>
+        ${statsBits.length ? `<div class="detail-event-meta">${escapeHtml(statsBits.join(" · "))}</div>` : ""}
         ${payloadText ? `<pre class="detail-event-payload">${escapeHtml(payloadText)}</pre>` : ""}
       </article>
     `;
@@ -594,12 +727,29 @@ async function initializePage() {
   const failure = job.failure || {};
   const failureDiagnostic = job.failure_diagnostic || {};
   const retryable = failure.retryable ?? failureDiagnostic.retryable;
-  setText("detail-failure-summary", summarizeRuntimeField(failure.summary || job.final_failure_summary || failureDiagnostic.summary));
-  setText("detail-failure-category", summarizeRuntimeField(failure.category || job.final_failure_category || failureDiagnostic.type || failureDiagnostic.error_kind));
-  setText("detail-failure-stage", summarizeRuntimeField(failure.stage || failureDiagnostic.stage || failureDiagnostic.failed_stage));
-  setText("detail-failure-root-cause", summarizeRuntimeField(failure.root_cause || failureDiagnostic.root_cause));
-  setText("detail-failure-suggestion", summarizeRuntimeField(failure.suggestion || failureDiagnostic.suggestion));
-  setText("detail-failure-last-log-line", summarizeRuntimeField(failure.last_log_line || failureDiagnostic.last_log_line));
+  const failureLastLogLine = firstNonEmptyText(
+    failure.last_log_line,
+    failureDiagnostic.last_log_line,
+    Array.isArray(job.log_tail) && job.log_tail.length ? job.log_tail[job.log_tail.length - 1] : "",
+  );
+  setText("detail-failure-summary", summarizeRuntimeField(failure.summary || job.final_failure_summary || failureDiagnostic.summary || failure.raw_excerpt));
+  setText("detail-failure-category", summarizeRuntimeField(
+    failure.category
+    || failure.failure_category
+    || job.final_failure_category
+    || failureDiagnostic.type
+    || failureDiagnostic.error_kind,
+  ));
+  setText("detail-failure-stage", summarizeRuntimeField(
+    failure.stage
+    || failure.failed_stage
+    || failure.provider_stage
+    || failureDiagnostic.stage
+    || failureDiagnostic.failed_stage,
+  ));
+  setText("detail-failure-root-cause", summarizeRuntimeField(failure.root_cause || failureDiagnostic.root_cause || failure.upstream_host));
+  setText("detail-failure-suggestion", summarizeRuntimeField(failure.suggestion || failureDiagnostic.suggestion || failure.failure_code));
+  setText("detail-failure-last-log-line", summarizeRuntimeField(failureLastLogLine));
   setText("detail-failure-retryable", typeof retryable === "boolean" ? (retryable ? "是" : "否") : "-");
   setText("detail-error-box", summarizePublicError(job));
   setEventsStatus("尚未加载");

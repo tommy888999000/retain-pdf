@@ -3,11 +3,11 @@ use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PaddleSubmitEnvelope {
-    #[serde(default, rename = "logId")]
+    #[serde(default, rename = "logId", alias = "traceId")]
     pub log_id: String,
-    #[serde(default, rename = "errorCode")]
+    #[serde(default, rename = "errorCode", alias = "code")]
     pub error_code: i64,
-    #[serde(default, rename = "errorMsg")]
+    #[serde(default, rename = "errorMsg", alias = "msg")]
     pub error_msg: String,
     pub data: Option<PaddleSubmitData>,
 }
@@ -20,11 +20,11 @@ pub struct PaddleSubmitData {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PaddlePollEnvelope {
-    #[serde(default, rename = "logId")]
+    #[serde(default, rename = "logId", alias = "traceId")]
     pub log_id: String,
-    #[serde(default, rename = "errorCode")]
+    #[serde(default, rename = "errorCode", alias = "code")]
     pub error_code: i64,
-    #[serde(default, rename = "errorMsg")]
+    #[serde(default, rename = "errorMsg", alias = "msg")]
     pub error_msg: String,
     pub data: Option<PaddlePollData>,
 }

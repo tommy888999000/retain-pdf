@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from foundation.config import paths
-from services.rendering.formula.normalizer import normalize_formula_for_latex_math
+from services.rendering.formula.fallback.latex_normalizer import normalize_formula_for_latex_math
 
 
 FORMULA_CACHE_DIR = paths.OUTPUT_DIR / "formula_cache"

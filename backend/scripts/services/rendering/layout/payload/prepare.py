@@ -8,6 +8,7 @@ from services.rendering.layout.font_fit import page_baseline_font_size
 from services.rendering.layout.payload.metrics import block_metrics
 from services.rendering.layout.payload.metrics import box_capacity_units
 from services.rendering.layout.payload.metrics import text_demand_units
+from services.rendering.formula.mode_router import is_direct_typst_math_mode
 from services.rendering.layout.payload.shared import same_meaningful_render_text
 from services.rendering.layout.payload.shared import split_protected_text_for_boxes
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
@@ -120,10 +121,7 @@ def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> 
         items = [item for item in items if (item.get("translation_unit_protected_translated_text") or "").strip()]
         if not items:
             continue
-        direct_math_mode = any(
-            str(item.get("math_mode", "placeholder") or "placeholder").strip() == "direct_typst"
-            for item in items
-        )
+        direct_math_mode = any(is_direct_typst_math_mode(item) for item in items)
         unit_formula_map = items[0].get("translation_unit_formula_map") or items[0].get("group_formula_map", [])
         protected_unit_text = (
             items[0].get("translation_unit_protected_translated_text")

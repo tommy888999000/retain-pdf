@@ -1,5 +1,6 @@
 import { $ } from "../../dom.js";
 import { DEFAULT_FILE_LABEL } from "../../constants.js";
+import { getOcrProviderDefinition, normalizeOcrProvider } from "../../provider-config.js";
 
 export function mountWorkflowFeature({
   state,
@@ -8,6 +9,8 @@ export function mountWorkflowFeature({
   defaultModelName,
   defaultModelBaseUrl,
   defaultMineruToken,
+  defaultPaddleToken,
+  defaultOcrProvider,
   defaultModelApiKey,
   normalizeWorkflow,
   normalizeMathMode,
@@ -239,16 +242,62 @@ export function mountWorkflowFeature({
       timeoutSeconds: Number($("developer-timeout-seconds")?.value || DEFAULT_TIMEOUT_SECONDS),
       translateTitles: currentConfig.translateTitles,
     };
-    saveDeveloperStoredConfig(state.developerConfig);
+    void saveDeveloperStoredConfig(state.developerConfig);
     applyWorkflowMode();
     $("developer-dialog")?.close();
   }
 
   function resetDeveloperDialog() {
     state.developerConfig = {};
-    saveDeveloperStoredConfig({});
+    void saveDeveloperStoredConfig({});
     syncDeveloperDialogFromState();
     applyWorkflowMode();
+  }
+
+  function buildSourcePayload(workflow, developerConfig) {
+    return workflowNeedsUpload(workflow)
+      ? { upload_id: state.uploadId }
+      : { artifact_job_id: developerConfig.renderSourceJobId };
+  }
+
+  function buildOcrPayload(pageRanges) {
+    const provider = normalizeOcrProvider($("ocr_provider")?.value || defaultOcrProvider());
+    const definition = getOcrProviderDefinition(provider);
+    const token = definition.id === "paddle"
+      ? ($("paddle_token")?.value || defaultPaddleToken())
+      : ($("mineru_token")?.value || defaultMineruToken());
+    return {
+      provider,
+      [definition.tokenField]: token,
+      model_version: DEFAULT_MODEL_VERSION,
+      language: DEFAULT_LANGUAGE,
+      page_ranges: pageRanges,
+    };
+  }
+
+  function buildTranslationPayload(developerConfig) {
+    return {
+      mode: DEFAULT_MODE,
+      math_mode: developerConfig.mathMode,
+      model: developerConfig.model,
+      base_url: developerConfig.baseUrl,
+      api_key: $("api_key").value || defaultModelApiKey(),
+      workers: developerConfig.workers,
+      batch_size: developerConfig.batchSize,
+      classify_batch_size: developerConfig.classifyBatchSize,
+      rule_profile_name: DEFAULT_RULE_PROFILE,
+      custom_rules_text: "",
+      glossary_id: "",
+      glossary_entries: [],
+      skip_title_translation: !developerConfig.translateTitles,
+    };
+  }
+
+  function buildRenderPayload(developerConfig) {
+    return {
+      render_mode: DEFAULT_RENDER_MODE,
+      compile_workers: developerConfig.compileWorkers,
+    };
   }
 
   function collectRunPayload() {
@@ -257,42 +306,18 @@ export function mountWorkflowFeature({
     const workflow = developerConfig.workflow;
     const payload = {
       workflow,
-      source: workflowNeedsUpload(workflow)
-        ? { upload_id: state.uploadId }
-        : { artifact_job_id: developerConfig.renderSourceJobId },
+      source: buildSourcePayload(workflow, developerConfig),
       runtime: {
+        job_id: "",
         timeout_seconds: developerConfig.timeoutSeconds,
       },
     };
     if (workflow === WORKFLOW_BOOK || workflow === WORKFLOW_TRANSLATE) {
-      payload.ocr = {
-        provider: "mineru",
-        mineru_token: $("mineru_token").value || defaultMineruToken(),
-        model_version: DEFAULT_MODEL_VERSION,
-        language: DEFAULT_LANGUAGE,
-        page_ranges: pageRanges,
-      };
-      payload.translation = {
-        mode: DEFAULT_MODE,
-        model: developerConfig.model,
-        base_url: developerConfig.baseUrl,
-        api_key: $("api_key").value || defaultModelApiKey(),
-        workers: developerConfig.workers,
-        batch_size: developerConfig.batchSize,
-        classify_batch_size: developerConfig.classifyBatchSize,
-        rule_profile_name: DEFAULT_RULE_PROFILE,
-        custom_rules_text: "",
-        skip_title_translation: !developerConfig.translateTitles,
-      };
-      if (developerConfig.mathMode === "direct_typst") {
-        payload.translation.math_mode = "direct_typst";
-      }
+      payload.ocr = buildOcrPayload(pageRanges);
+      payload.translation = buildTranslationPayload(developerConfig);
     }
     if (workflowUsesRenderStage(workflow)) {
-      payload.render = {
-        render_mode: DEFAULT_RENDER_MODE,
-        compile_workers: developerConfig.compileWorkers,
-      };
+      payload.render = buildRenderPayload(developerConfig);
     }
     return payload;
   }

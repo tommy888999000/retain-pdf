@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 from foundation.config import fonts
 from foundation.config import paths
@@ -13,6 +14,85 @@ from services.rendering.typst.shared import TYPST_OVERLAY_DIR
 from services.rendering.typst.source_builder import build_typst_book_background_source
 from services.rendering.typst.source_builder import build_typst_book_overlay_source
 from services.rendering.typst.source_builder import build_typst_overlay_source
+
+
+class TypstCompileError(RuntimeError):
+    def __init__(
+        self,
+        *,
+        phase: str,
+        stem: str,
+        typ_path: Path,
+        pdf_path: Path,
+        command: list[str],
+        return_code: int,
+        stdout: str,
+        stderr: str,
+        work_dir: Path | None = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        self.phase = phase
+        self.stem = stem
+        self.typ_path = Path(typ_path)
+        self.pdf_path = Path(pdf_path)
+        self.command = list(command)
+        self.return_code = int(return_code)
+        self.stdout = str(stdout or "")
+        self.stderr = str(stderr or "")
+        self.work_dir = Path(work_dir) if work_dir is not None else self.typ_path.parent
+        self.extra = dict(extra or {})
+        super().__init__(self._message())
+
+    def _message(self) -> str:
+        detail = (self.stderr or self.stdout).strip()
+        prefix = (
+            f"Typst compile failed phase={self.phase} stem={self.stem} "
+            f"code={self.return_code} typ={self.typ_path}"
+        )
+        return f"{prefix}\n{detail}" if detail else prefix
+
+    def to_dict(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "phase": self.phase,
+            "stem": self.stem,
+            "typ_path": str(self.typ_path),
+            "pdf_path": str(self.pdf_path),
+            "work_dir": str(self.work_dir),
+            "command": list(self.command),
+            "return_code": self.return_code,
+            "stdout": self.stdout,
+            "stderr": self.stderr,
+            "message": str(self),
+        }
+        if self.extra:
+            payload["extra"] = dict(self.extra)
+        return payload
+
+
+def _run_typst_compile(
+    *,
+    command: list[str],
+    typ_path: Path,
+    pdf_path: Path,
+    phase: str,
+    stem: str,
+    work_dir: Path | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    proc = subprocess.run(command, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise TypstCompileError(
+            phase=phase,
+            stem=stem,
+            typ_path=typ_path,
+            pdf_path=pdf_path,
+            command=command,
+            return_code=proc.returncode,
+            stdout=proc.stdout,
+            stderr=proc.stderr,
+            work_dir=work_dir,
+            extra=extra,
+        )
 
 
 def _resolved_font_paths(font_paths: list[Path] | None = None) -> list[Path]:
@@ -65,9 +145,16 @@ def compile_typst_overlay_pdf(
         ),
         encoding="utf-8",
     )
-    proc = subprocess.run(_typst_compile_command(typ_path, pdf_path, font_paths), capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout).strip())
+    command = _typst_compile_command(typ_path, pdf_path, font_paths)
+    _run_typst_compile(
+        command=command,
+        typ_path=typ_path,
+        pdf_path=pdf_path,
+        phase="overlay_page",
+        stem=stem,
+        work_dir=work_dir,
+        extra={"page_width": page_width, "page_height": page_height, "item_count": len(translated_items)},
+    )
     return pdf_path
 
 
@@ -91,9 +178,16 @@ def compile_typst_book_overlay_pdf(
         ),
         encoding="utf-8",
     )
-    proc = subprocess.run(_typst_compile_command(typ_path, pdf_path, font_paths), capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout).strip())
+    command = _typst_compile_command(typ_path, pdf_path, font_paths)
+    _run_typst_compile(
+        command=command,
+        typ_path=typ_path,
+        pdf_path=pdf_path,
+        phase="overlay_book",
+        stem=stem,
+        work_dir=work_dir,
+        extra={"page_count": len(page_specs)},
+    )
     return pdf_path
 
 
@@ -117,9 +211,15 @@ def compile_typst_book_background_pdf(
     for font_path in _resolved_font_paths(font_paths):
         command.extend(["--font-path", str(font_path)])
     command.extend([str(typ_path), str(pdf_path)])
-    proc = subprocess.run(command, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout).strip())
+    _run_typst_compile(
+        command=command,
+        typ_path=typ_path,
+        pdf_path=pdf_path,
+        phase="background_book",
+        stem=stem,
+        work_dir=work_dir,
+        extra={"page_count": len(page_specs), "source_pdf_path": str(source_pdf_path)},
+    )
     return pdf_path
 
 
@@ -149,7 +249,13 @@ def compile_typst_render_pages_pdf(
     for font_path in _resolved_font_paths(font_paths):
         command.extend(["--font-path", str(font_path)])
     command.extend([str(typ_path), str(pdf_path)])
-    proc = subprocess.run(command, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError((proc.stderr or proc.stdout).strip())
+    _run_typst_compile(
+        command=command,
+        typ_path=typ_path,
+        pdf_path=pdf_path,
+        phase="render_pages",
+        stem=stem,
+        work_dir=work_dir,
+        extra={"page_count": len(page_specs), "background_pdf_path": str(background_pdf_path)},
+    )
     return pdf_path

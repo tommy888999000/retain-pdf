@@ -1,4 +1,7 @@
 import { resolveJobMarkdownContract, toAbsoluteApiUrl } from "./job-artifacts.js";
+import { summarizeStageDetail, summarizeStageLabel } from "./job-status-summary.js";
+
+export { summarizeStageDetail, summarizeStageLabel } from "./job-status-summary.js";
 
 function numberOrNull(value) {
   const num = Number(value);
@@ -80,6 +83,7 @@ export function normalizeJobPayload(payload) {
     links: unwrapped.links || {},
     actions: unwrapped.actions || {},
     artifacts,
+    ocr_job: objectOrNull(unwrapped.ocr_job),
     runtime,
     invocation,
     failure,
@@ -199,30 +203,6 @@ export function summarizeStatus(status) {
       return "任务已失败，请检查报错提示后重试。";
     default:
       return "等待提交任务。";
-  }
-}
-
-export function summarizeStageDetail(payload) {
-  const detail = firstNonEmpty(
-    payload.failure?.summary,
-    payload.stage_detail,
-    payload.runtime?.current_stage,
-    payload.current_stage,
-  );
-  if (detail) {
-    return detail;
-  }
-  switch (payload.status) {
-    case "queued":
-      return "排队中";
-    case "running":
-      return "后端正在处理当前文档";
-    case "succeeded":
-      return "处理完成";
-    case "failed":
-      return "处理失败";
-    default:
-      return "-";
   }
 }
 

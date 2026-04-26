@@ -13,6 +13,7 @@
 - [产物清单与下载](./rust_api/06-产物清单与下载.md)
 - [Paddle Markdown 到 Job Artifact 映射与边界](./paddle_ocr_api/06_job_artifact_boundary.md)
 - [Paddle OCR 官方说明归档](./paddle_ocr_api/official/README.md)
+- [Python 依赖单一事实来源](./python_dependency_source_of_truth.md)
 - [Pipeline 阶段契约](../backend/scripts/runtime/pipeline/README.md)
 - [Translation 模块说明](../backend/scripts/services/translation/README.md)
 - [后端 API 主文档](./backend-api.md)

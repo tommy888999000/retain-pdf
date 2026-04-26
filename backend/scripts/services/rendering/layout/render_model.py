@@ -6,9 +6,8 @@ from pathlib import Path
 import fitz
 
 from services.rendering.api.render_payloads import prepare_render_payloads_by_page
-from services.rendering.formula.math_utils import build_direct_typst_passthrough_text
-from services.rendering.formula.math_utils import build_markdown_from_parts
-from services.rendering.formula.math_utils import build_plain_text_from_text
+from services.rendering.formula.core.markdown import build_plain_text_from_text
+from services.rendering.formula.mode_router import build_item_render_markdown
 from services.rendering.core.models import RenderLayoutBlock
 from services.rendering.core.models import RenderPageSpec
 from services.rendering.layout.font_fit import estimate_font_size_pt
@@ -46,6 +45,121 @@ def _should_fit_wrapped_markdown(item: dict, markdown_text: str, *, font_size_pt
     return estimated_height > height * 0.92
 
 
+VERTICAL_COLLISION_GAP_PT = 0.9
+VERTICAL_COLLISION_MIN_WIDTH_OVERLAP_RATIO = 0.6
+VERTICAL_COLLISION_SOURCE_GAP_TRIGGER_PT = 3.0
+VERTICAL_COLLISION_TRIGGER_RATIO = 0.98
+VERTICAL_COLLISION_TIGHT_SOURCE_GAP_PT = 0.5
+VERTICAL_COLLISION_SAFETY_PAD_PT = 2.0
+VERTICAL_COLLISION_HEIGHT_USAGE_TRIGGER_RATIO = 0.94
+VERTICAL_COLLISION_CASCADE_MIN_GAP_PT = 10.0
+
+
+def _estimated_markdown_height(markdown_text: str, content_rect: list[float], *, font_size_pt: float, leading_em: float) -> float:
+    if len(content_rect) != 4:
+        return 0.0
+    width = max(1.0, content_rect[2] - content_rect[0])
+    zh_len = _compact_zh_len(markdown_text)
+    if zh_len <= 0 or font_size_pt <= 0:
+        return 0.0
+    chars_per_line = max(4.0, width / max(1.0, font_size_pt * 0.92))
+    estimated_lines = max(1.0, zh_len / chars_per_line)
+    return estimated_lines * font_size_pt * (1.0 + max(0.1, leading_em))
+
+
+def _horizontal_overlap_ratio(current: RenderLayoutBlock, nxt: RenderLayoutBlock) -> float:
+    current_left, _current_top, current_right, _current_bottom = current.content_rect
+    next_left, _next_top, next_right, _next_bottom = nxt.content_rect
+    overlap_width = max(0.0, min(current_right, next_right) - max(current_left, next_left))
+    min_width = max(1.0, min(current_right - current_left, next_right - next_left))
+    current_cover_left, _current_cover_top, current_cover_right, _current_cover_bottom = current.background_rect
+    next_cover_left, _next_cover_top, next_cover_right, _next_cover_bottom = nxt.background_rect
+    cover_overlap_width = max(0.0, min(current_cover_right, next_cover_right) - max(current_cover_left, next_cover_left))
+    cover_min_width = max(1.0, min(current_cover_right - current_cover_left, next_cover_right - next_cover_left))
+    return max(overlap_width / min_width, cover_overlap_width / cover_min_width)
+
+
+def _shift_block_vertically(block: RenderLayoutBlock, delta_pt: float) -> None:
+    if abs(delta_pt) <= 0.01:
+        return
+    block.content_rect[1] += delta_pt
+    block.content_rect[3] += delta_pt
+    block.background_rect[1] += delta_pt
+    block.background_rect[3] += delta_pt
+
+
+def _cascade_shift_column_down(ordered: list[RenderLayoutBlock], *, start_idx: int, delta_pt: float) -> None:
+    if delta_pt <= 0:
+        return
+    anchor = ordered[start_idx]
+    for idx in range(start_idx, len(ordered)):
+        block = ordered[idx]
+        if _horizontal_overlap_ratio(anchor, block) < VERTICAL_COLLISION_MIN_WIDTH_OVERLAP_RATIO:
+            continue
+        _shift_block_vertically(block, delta_pt)
+
+
+def _mark_adjacent_collision_risk(blocks: list[RenderLayoutBlock]) -> None:
+    ordered = sorted(blocks, key=lambda block: (block.content_rect[1], block.content_rect[0]))
+    for idx, (current, nxt) in enumerate(zip(ordered, ordered[1:])):
+        current_left, current_top, current_right, current_bottom = current.content_rect
+        _next_left, next_top, _next_right, _next_bottom = nxt.content_rect
+        _current_cover_left, _current_cover_top, _current_cover_right, current_cover_bottom = current.background_rect
+        _next_cover_left, next_cover_top, _next_cover_right, _next_cover_bottom = nxt.background_rect
+        if _horizontal_overlap_ratio(current, nxt) < VERTICAL_COLLISION_MIN_WIDTH_OVERLAP_RATIO:
+            continue
+
+        source_gap = next_cover_top - current_cover_bottom
+        if source_gap > VERTICAL_COLLISION_SOURCE_GAP_TRIGGER_PT:
+            continue
+
+        max_height_pt = next_top - current_top - VERTICAL_COLLISION_GAP_PT
+        if max_height_pt <= 0:
+            continue
+
+        estimated_height = _estimated_markdown_height(
+            current.content_text,
+            current.content_rect,
+            font_size_pt=current.font_size_pt,
+            leading_em=current.leading_em,
+        )
+        current_height_pt = max(1.0, current_bottom - current_top)
+        tight_source_gap = source_gap <= VERTICAL_COLLISION_TIGHT_SOURCE_GAP_PT
+        height_usage_ratio = current_height_pt / max(1.0, max_height_pt)
+        if (
+            not tight_source_gap
+            and estimated_height <= max_height_pt * VERTICAL_COLLISION_TRIGGER_RATIO
+            and not (current.fit_to_box and height_usage_ratio >= VERTICAL_COLLISION_HEIGHT_USAGE_TRIGGER_RATIO)
+        ):
+            continue
+
+        safety_pad_pt = max(VERTICAL_COLLISION_SAFETY_PAD_PT, min(current.font_size_pt * 0.6, 6.0))
+        if tight_source_gap:
+            safety_pad_pt = max(
+                safety_pad_pt,
+                current.font_size_pt * (1.0 + current.leading_em),
+                12.0,
+            )
+        tightened_height_pt = min(
+            max_height_pt,
+            max(8.0, current_height_pt - safety_pad_pt),
+        )
+
+        current.fit_to_box = True
+        current.fit_max_height_pt = min(
+            max(8.0, current.fit_max_height_pt or tightened_height_pt),
+            tightened_height_pt,
+        )
+        current.skip_reason = "adjacent_collision_risk"
+        if tight_source_gap:
+            desired_next_cover_top = current_cover_bottom + max(
+                VERTICAL_COLLISION_CASCADE_MIN_GAP_PT,
+                current.font_size_pt * (1.0 + current.leading_em),
+            )
+            shift_delta_pt = max(0.0, desired_next_cover_top - next_cover_top)
+            _cascade_shift_column_down(ordered, start_idx=idx + 1, delta_pt=shift_delta_pt)
+
+
 def _layout_block_from_item(
     item: dict,
     *,
@@ -78,15 +192,7 @@ def _layout_block_from_item(
     )
     leading_em = estimate_leading_em(item_with_flag, page_line_pitch, font_size_pt)
     content_kind = "plain" if item.get("_force_plain_line") or is_flag_like_plain_text_block(item) else "markdown"
-    direct_math_mode = str(item.get("math_mode", "placeholder") or "placeholder").strip() == "direct_typst"
-    markdown_text = (
-        build_direct_typst_passthrough_text(protected_text)
-        if direct_math_mode
-        else build_markdown_from_parts(
-            protected_text,
-            formula_map,
-        )
-    )
+    markdown_text = build_item_render_markdown(item, protected_text, formula_map)
     plain_text = build_plain_text_from_text(markdown_text)
     title_like = is_title_like_block(item)
     wrapped_markdown_candidate = content_kind == "markdown" and _should_fit_wrapped_markdown(
@@ -149,6 +255,7 @@ def _build_layout_blocks(items: list[dict], *, page_index: int) -> list[RenderLa
         )
         if block is not None:
             blocks.append(block)
+    _mark_adjacent_collision_risk(blocks)
     return blocks
 
 

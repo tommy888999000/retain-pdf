@@ -23,6 +23,7 @@ def compile_page_overlay_pdf(
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
     work_subdir: str = "page-overlays",
+    diagnostics: dict | None = None,
 ) -> Path:
     base_dir = temp_root or paths.OUTPUT_DIR
     base_dir.mkdir(parents=True, exist_ok=True)
@@ -39,6 +40,7 @@ def compile_page_overlay_pdf(
         include_cover_rect=include_cover_rect,
         font_paths=font_paths,
         work_dir=work_dir,
+        diagnostics=diagnostics,
     )
 
 

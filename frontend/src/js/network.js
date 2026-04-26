@@ -1,4 +1,4 @@
-import { apiBase, buildApiHeaders, frontendApiKey, isMockMode } from "./config.js";
+import { apiBase, buildApiHeaders, buildApiUrl, frontendApiKey, isMockMode } from "./config.js";
 import { unwrapEnvelope } from "./job.js";
 import {
   fetchMockProtected,
@@ -11,12 +11,93 @@ import {
   submitMockUpload,
 } from "./mock.js";
 
+function isObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function summarizeJobRequestContext(payload) {
+  if (!isObject(payload)) {
+    return "";
+  }
+  const workflow = `${payload.workflow || ""}`.trim();
+  const provider = `${payload.ocr?.provider || ""}`.trim();
+  const uploadId = `${payload.source?.upload_id || ""}`.trim();
+  const artifactJobId = `${payload.source?.artifact_job_id || ""}`.trim();
+  const parts = [];
+  if (workflow) {
+    parts.push(`workflow=${workflow}`);
+  }
+  if (provider) {
+    parts.push(`ocr.provider=${provider}`);
+  }
+  if (uploadId) {
+    parts.push(`source.upload_id=${uploadId}`);
+  }
+  if (artifactJobId) {
+    parts.push(`source.artifact_job_id=${artifactJobId}`);
+  }
+  return parts.length > 0 ? ` [${parts.join(", ")}]` : "";
+}
+
+function assertGroupedJobPayload(payload) {
+  if (!isObject(payload)) {
+    throw new Error("提交失败: /api/v1/jobs 需要 JSON object 请求体。");
+  }
+  if (!payload.workflow || !isObject(payload.source)) {
+    throw new Error("提交失败: /api/v1/jobs 必须使用 grouped JSON，至少包含 workflow 和 source。");
+  }
+  const legacyTopLevelFields = [
+    "upload_id",
+    "artifact_job_id",
+    "mode",
+    "model",
+    "base_url",
+    "api_key",
+    "mineru_token",
+    "paddle_token",
+    "model_version",
+    "language",
+    "render_mode",
+    "skip_title_translation",
+    "batch_size",
+    "workers",
+    "classify_batch_size",
+    "compile_workers",
+    "rule_profile_name",
+    "custom_rules_text",
+    "timeout_seconds",
+  ];
+  const leakedLegacyFields = legacyTopLevelFields.filter((field) => field in payload);
+  if (leakedLegacyFields.length > 0) {
+    throw new Error(
+      `提交失败: /api/v1/jobs 不再接受旧扁平字段，发现 ${leakedLegacyFields.join(", ")}。请改为 source/ocr/translation/render/runtime 分组结构。`,
+    );
+  }
+}
+
+export function buildApiEndpoint(apiPrefix, relativePath = "") {
+  return buildApiUrl(apiPrefix, relativePath);
+}
+
+export function buildJobsEndpoint(apiPrefix, scope = "jobs") {
+  return buildApiEndpoint(apiPrefix, scope === "ocr" ? "ocr/jobs" : "jobs");
+}
+
+export function buildJobDetailEndpoint(jobId, apiPrefix) {
+  return buildJobsEndpoint(apiPrefix, "jobs") + `/${jobId}`;
+}
+
+export async function submitJobRequest(apiPrefix, payload) {
+  assertGroupedJobPayload(payload);
+  return submitJson(buildJobsEndpoint(apiPrefix, "jobs"), payload);
+}
+
 export async function fetchJobPayload(jobId, apiPrefix) {
   if (isMockMode()) {
     void apiPrefix;
     return getMockJobPayload(jobId);
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}`, {
+  const resp = await fetch(buildJobDetailEndpoint(jobId, apiPrefix), {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -36,7 +117,7 @@ export async function fetchJobEvents(jobId, apiPrefix, limit = 50, offset = 0) {
     const payload = getMockJobEvents();
     return { ...payload, limit, offset };
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/events?limit=${limit}&offset=${offset}`, {
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/events?limit=${limit}&offset=${offset}`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -55,7 +136,7 @@ export async function fetchJobArtifactsManifest(jobId, apiPrefix) {
     void apiPrefix;
     return getMockJobArtifactsManifest();
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/artifacts-manifest`, {
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/artifacts-manifest`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -74,7 +155,7 @@ export async function fetchJobMarkdown(jobId, apiPrefix) {
     void apiPrefix;
     return getMockJobMarkdown();
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/markdown`, {
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/markdown`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -98,7 +179,7 @@ export async function fetchTranslationDiagnostics(jobId, apiPrefix) {
       },
     };
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/translation/diagnostics`, {
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/translation/diagnostics`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -151,7 +232,7 @@ export async function fetchTranslationItems(
     params.set("q", `${q}`.trim());
   }
   const resp = await fetch(
-    `${apiBase()}${apiPrefix}/jobs/${jobId}/translation/items?${params.toString()}`,
+    `${buildJobDetailEndpoint(jobId, apiPrefix)}/translation/items?${params.toString()}`,
     {
       headers: buildApiHeaders(),
     },
@@ -177,7 +258,7 @@ export async function fetchTranslationItem(jobId, itemId, apiPrefix) {
       item: {},
     };
   }
-  const resp = await fetch(`${apiBase()}${apiPrefix}/jobs/${jobId}/translation/items/${itemId}`, {
+  const resp = await fetch(`${buildJobDetailEndpoint(jobId, apiPrefix)}/translation/items/${itemId}`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -204,7 +285,7 @@ export async function replayTranslationItem(jobId, itemId, apiPrefix) {
     };
   }
   const resp = await fetch(
-    `${apiBase()}${apiPrefix}/jobs/${jobId}/translation/items/${itemId}/replay`,
+    `${buildJobDetailEndpoint(jobId, apiPrefix)}/translation/items/${itemId}/replay`,
     {
       method: "POST",
       headers: buildApiHeaders(),
@@ -253,8 +334,7 @@ export async function fetchJobList(
   if (provider) {
     params.set("provider", provider);
   }
-  const normalizedScope = scope === "ocr" ? "ocr/jobs" : "jobs";
-  const resp = await fetch(`${apiBase()}${apiPrefix}/${normalizedScope}?${params.toString()}`, {
+  const resp = await fetch(`${buildJobsEndpoint(apiPrefix, scope)}?${params.toString()}`, {
     headers: buildApiHeaders(),
   });
   if (!resp.ok) {
@@ -277,7 +357,7 @@ export function submitUploadRequest(url, form, onProgress) {
     xhr.responseType = "json";
     const apiKey = frontendApiKey();
     if (apiKey) {
-      xhr.setRequestHeader("X-API-KEY", apiKey);
+      xhr.setRequestHeader("X-API-Key", apiKey);
     }
 
     xhr.upload.addEventListener("progress", (event) => {
@@ -328,13 +408,16 @@ export async function submitJson(url, payload) {
     body: JSON.stringify(payload),
   });
   if (!resp.ok) {
+    const requestContext = /\/api\/v1\/jobs(?:$|\?)/.test(url)
+      ? summarizeJobRequestContext(payload)
+      : "";
     const contentType = resp.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
       const errorPayload = await resp.json();
-      throw new Error(`提交失败: ${resp.status} ${errorPayload.message || JSON.stringify(errorPayload)}`);
+      throw new Error(`提交失败: ${resp.status} ${errorPayload.message || JSON.stringify(errorPayload)}${requestContext}`);
     }
     const text = await resp.text();
-    throw new Error(`提交失败: ${resp.status} ${text}`);
+    throw new Error(`提交失败: ${resp.status} ${text}${requestContext}`);
   }
   const payloadJson = await resp.json();
   return unwrapEnvelope(payloadJson);
@@ -350,7 +433,20 @@ export async function validateMineruToken(apiPrefix, payload) {
       summary: "mock mode: token validation skipped",
     };
   }
-  return submitJson(`${apiBase()}${apiPrefix}/providers/mineru/validate-token`, payload);
+  return submitJson(buildApiEndpoint(apiPrefix, "providers/mineru/validate-token"), payload);
+}
+
+export async function validatePaddleToken(apiPrefix, payload) {
+  if (isMockMode()) {
+    void apiPrefix;
+    void payload;
+    return {
+      ok: true,
+      valid: true,
+      summary: "mock mode: token validation skipped",
+    };
+  }
+  return submitJson(buildApiEndpoint(apiPrefix, "providers/paddle/validate-token"), payload);
 }
 
 export async function fetchProtected(url, options = {}) {

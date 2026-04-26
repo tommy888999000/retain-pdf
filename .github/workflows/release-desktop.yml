@@ -63,6 +63,10 @@ jobs:
           python-version: "3.11"
           architecture: "x86"
 
+      - name: Verify generated Python requirement snapshots
+        shell: pwsh
+        run: python backend/scripts/devtools/sync_python_requirements.py --repo-root . --check
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -149,7 +153,7 @@ jobs:
           python -m pip install --target $sitePackages -r desktop/requirements-desktop-windows.txt
           $pythonBundleExe = Join-Path $bundleRoot "python.exe"
           $env:PYTHONPATH = $sitePackages
-          & $pythonBundleExe -c "import requests, fitz, pikepdf, PIL; print('python_bundle_import_check=ok')"
+          & $pythonBundleExe -c "import requests, fitz, pikepdf, PIL, urllib3; print('python_bundle_import_check=ok')"
           Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
           Get-ChildItem $bundleRoot | Select-Object Name, Length, LastWriteTime
           $bundleSize = [Math]::Round(((Get-ChildItem $bundleRoot -Recurse -File | Measure-Object -Property Length -Sum).Sum / 1MB), 2)
@@ -176,6 +180,10 @@ jobs:
         shell: pwsh
         run: |
           Get-Content desktop/app/backend/bundle-manifest.json
+
+      - name: Validate desktop bundle manifest
+        shell: pwsh
+        run: python .github/scripts/validate_desktop_bundle.py --manifest desktop/app/backend/bundle-manifest.json
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
@@ -230,6 +238,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Verify generated Python requirement snapshots
+        shell: bash
+        run: python backend/scripts/devtools/sync_python_requirements.py --repo-root . --check
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -316,7 +328,7 @@ jobs:
           mkdir -p "$site_packages"
           "$bundle_root/bin/python3" -m pip install --target "$site_packages" -r desktop/requirements-desktop-posix.txt
           "$bundle_root/bin/python3" - <<'PY'
-          import requests, fitz, pikepdf, PIL
+          import requests, fitz, pikepdf, PIL, urllib3
           print("python_bundle_import_check=ok")
           PY
           ldd "$bundle_root/bin/python3"
@@ -350,6 +362,14 @@ jobs:
           RETAIN_PDF_VERSION: ${{ steps.version.outputs.version }}
           RETAIN_PDF_DESKTOP_PLATFORM: linux
         run: npm run dist:linux
+
+      - name: Show desktop bundle manifest
+        shell: bash
+        run: cat desktop/app/backend/bundle-manifest.json
+
+      - name: Validate desktop bundle manifest
+        shell: bash
+        run: python3 .github/scripts/validate_desktop_bundle.py --manifest desktop/app/backend/bundle-manifest.json
 
       - name: Upload Linux release assets
         uses: softprops/action-gh-release@v2
@@ -404,6 +424,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Verify generated Python requirement snapshots
+        shell: bash
+        run: python backend/scripts/devtools/sync_python_requirements.py --repo-root . --check
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -475,7 +499,7 @@ jobs:
           "$bundle_root/bin/python3" -m pip install --upgrade pip
           "$bundle_root/bin/python3" -m pip install -r desktop/requirements-desktop-posix.txt
           "$bundle_root/bin/python3" - <<'PY'
-          import requests, fitz, pikepdf, PIL
+          import requests, fitz, pikepdf, PIL, urllib3
           print("python_bundle_import_check=ok")
           PY
           du -sh "$bundle_root"
@@ -519,6 +543,14 @@ jobs:
           RETAIN_PDF_BUNDLE_MAC_PYTHON: "1"
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:mac
+
+      - name: Show desktop bundle manifest
+        shell: bash
+        run: cat desktop/app/backend/bundle-manifest.json
+
+      - name: Validate desktop bundle manifest
+        shell: bash
+        run: python3 .github/scripts/validate_desktop_bundle.py --manifest desktop/app/backend/bundle-manifest.json
 
       - name: Upload macOS release assets
         uses: softprops/action-gh-release@v2

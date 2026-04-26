@@ -1,9 +1,25 @@
+import { OCR_PROVIDER_DEFINITIONS, TRANSLATION_PROVIDER_DEFINITION } from "../../provider-config.js";
+
 class DesktopSetupDialog extends HTMLElement {
   connectedCallback() {
     if (this.dataset.hydrated === "1") {
       return;
     }
     this.dataset.hydrated = "1";
+    const providerOptions = OCR_PROVIDER_DEFINITIONS.map((provider) => `
+      <option value="${provider.id}">${provider.label}</option>
+    `).join("");
+    const providerPanels = OCR_PROVIDER_DEFINITIONS.map((provider, index) => `
+      <label data-setup-provider-panel="${provider.id}" ${index === 0 ? "" : "hidden"}>
+        <span>${provider.tokenLabel}</span>
+        <input
+          id="setup-${provider.id}-token"
+          type="text"
+          autocomplete="off"
+          placeholder="${provider.tokenPlaceholder}"
+        />
+      </label>
+    `).join("");
     this.innerHTML = `
       <dialog id="desktop-setup-dialog" class="desktop-dialog">
         <form method="dialog" class="desktop-shell">
@@ -12,16 +28,19 @@ class DesktopSetupDialog extends HTMLElement {
             <button id="desktop-setup-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
           </div>
           <div class="desktop-body">
-            <p class="muted">首次使用前，请先填写 MinerU Token 和大模型 API Key。</p>
+            <p class="muted">首次使用前，请先选择 OCR Provider，并填写对应凭证与 ${TRANSLATION_PROVIDER_DEFINITION.keyLabel}。</p>
             <div class="grid two">
               <label>
-                <span>MinerU Token</span>
-                <input id="setup-mineru-token" type="text" autocomplete="off" />
+                <span>OCR Provider</span>
+                <select id="setup-ocr-provider">
+                  ${providerOptions}
+                </select>
               </label>
               <label>
-                <span>DeepSeek Key</span>
-                <input id="setup-model-api-key" type="text" autocomplete="off" />
+                <span>${TRANSLATION_PROVIDER_DEFINITION.keyLabel}</span>
+                <input id="setup-model-api-key" type="text" autocomplete="off" placeholder="${TRANSLATION_PROVIDER_DEFINITION.keyPlaceholder}" />
               </label>
+              ${providerPanels}
             </div>
             <div id="desktop-setup-error" class="upload-status hidden"></div>
             <div class="actions">

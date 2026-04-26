@@ -92,11 +92,9 @@ scripts/services/rendering/
 
 ## 公式回归
 
-如果新增了一条公式归一化规则，建议同时把坏例子补到 `formula/casebook.py`，然后运行：
-
-```bash
-python scripts/entrypoints/check_math_cases.py
-```
+如果新增了一条公式归一化规则，直接把坏例子补到
+[`devtools/tests/translation/test_formula_math_markers.py`](/home/wxyhgk/tmp/Code/backend/scripts/devtools/tests/translation/test_formula_math_markers.py)
+里的参数化回归测试。
 
 ## 协作规矩
 

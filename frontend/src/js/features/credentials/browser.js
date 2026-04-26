@@ -1,13 +1,16 @@
 import { $ } from "../../dom.js";
+import { API_PREFIX } from "../../constants.js";
 import {
-  API_PREFIX,
-  DEFAULT_MODEL_VERSION,
-} from "../../constants.js";
+  getOcrProviderDefinition,
+  normalizeOcrProvider,
+  TRANSLATION_PROVIDER_DEFINITION,
+} from "../../provider-config.js";
 
 export function mountBrowserCredentialsFeature({
   state,
   applyKeyInputs,
   defaultMineruToken,
+  defaultPaddleToken,
   defaultModelApiKey,
   defaultModelBaseUrl,
   getTaskOptions,
@@ -15,7 +18,7 @@ export function mountBrowserCredentialsFeature({
   saveBrowserStoredConfig,
   saveDesktopConfig,
   checkApiConnectivity,
-  validateMineruToken,
+  validateOcrToken,
   onCredentialStateChange,
 }) {
   function credentialDialog() {
@@ -39,13 +42,39 @@ export function mountBrowserCredentialsFeature({
     });
   }
 
-  function setMineruValidationMessage(message, tone = "") {
-    const el = $("browser-mineru-validation");
+  function currentOcrProvider() {
+    return normalizeOcrProvider($("ocr_provider")?.value);
+  }
+
+  function syncOcrProviderControls(providerId = currentOcrProvider()) {
+    const activeProvider = normalizeOcrProvider(providerId);
+    const dialog = credentialDialog();
+    if (!dialog) {
+      return;
+    }
+    const apiSelect = $("browser-ocr-provider-select");
+    const taskSelect = $("browser-task-ocr-provider-select");
+    if (apiSelect) {
+      apiSelect.value = activeProvider;
+    }
+    if (taskSelect) {
+      taskSelect.value = activeProvider;
+    }
+    dialog.querySelectorAll("[data-ocr-provider-panel]").forEach((panel) => {
+      const active = panel.dataset.ocrProviderPanel === activeProvider;
+      panel.classList.toggle("is-active", active);
+      panel.hidden = !active;
+    });
+  }
+
+  function setOcrValidationMessage(message, tone = "", providerId = currentOcrProvider()) {
+    const definition = getOcrProviderDefinition(providerId);
+    const el = $(`browser-${definition.id}-validation`);
     if (!el) {
       return;
     }
     const content = `${message || ""}`.trim();
-    el.textContent = content || "保存前会自动检测 MinerU Token。";
+    el.textContent = content || definition.validationIdleMessage;
     el.classList.toggle("hidden", !content);
     el.classList.toggle("is-valid", tone === "valid");
     el.classList.toggle("is-error", tone === "error");
@@ -57,52 +86,64 @@ export function mountBrowserCredentialsFeature({
       return;
     }
     const content = `${message || ""}`.trim();
-    el.textContent = content || "可检测 DeepSeek 接口是否连通。";
+    el.textContent = content || TRANSLATION_PROVIDER_DEFINITION.validationIdleMessage;
     el.classList.toggle("hidden", !content);
     el.classList.toggle("is-valid", tone === "valid");
     el.classList.toggle("is-error", tone === "error");
   }
 
-  function resetMineruValidationCache() {
-    state.validatedMineruToken = "";
-    state.mineruValidationStatus = "";
+  function resetOcrValidationCache() {
+    state.validatedOcrProvider = "";
+    state.validatedOcrToken = "";
+    state.ocrValidationStatus = "";
   }
 
-  async function runMineruTokenValidation(token, { showResult = true } = {}) {
-    const mineruToken = `${token || ""}`.trim();
-    if (!mineruToken) {
-      resetMineruValidationCache();
+  async function runOcrTokenValidation(providerId, token, { showResult = true } = {}) {
+    const definition = getOcrProviderDefinition(providerId);
+    const normalizedToken = `${token || ""}`.trim();
+    if (!normalizedToken) {
+      resetOcrValidationCache();
       if (showResult) {
-        setMineruValidationMessage("请先填写 MinerU Token。", "error");
+        setOcrValidationMessage(definition.validationMissingMessage, "error", definition.id);
       }
       return { ok: false, status: "unauthorized" };
     }
+    if (!definition.supportsValidation) {
+      state.validatedOcrProvider = definition.id;
+      state.validatedOcrToken = normalizedToken;
+      state.ocrValidationStatus = "skipped";
+      if (showResult) {
+        setOcrValidationMessage(definition.validationUnavailableMessage, "", definition.id);
+      }
+      return {
+        ok: true,
+        status: "skipped",
+        summary: definition.validationUnavailableMessage,
+      };
+    }
     if (showResult) {
-      setMineruValidationMessage("正在检测 MinerU Token…");
+      setOcrValidationMessage(`正在检测 ${definition.label} Token…`, "", definition.id);
     }
     try {
-      const result = await validateMineruToken(API_PREFIX, {
-        mineru_token: mineruToken,
-        base_url: "https://mineru.net",
-        model_version: DEFAULT_MODEL_VERSION,
-      });
-      state.validatedMineruToken = mineruToken;
-      state.mineruValidationStatus = result.status || "";
+      const result = await validateOcrToken(API_PREFIX, definition.id, normalizedToken);
+      state.validatedOcrProvider = definition.id;
+      state.validatedOcrToken = normalizedToken;
+      state.ocrValidationStatus = result.status || "";
       if (showResult) {
         const hint = result.operator_hint ? ` ${result.operator_hint}` : "";
-        const message = result.summary || `MinerU Token 检测结果：${result.status || "unknown"}`;
-        setMineruValidationMessage(`${message}${hint}`.trim(), result.ok ? "valid" : "error");
+        const message = result.summary || `${definition.label} Token 检测结果：${result.status || "unknown"}`;
+        setOcrValidationMessage(`${message}${hint}`.trim(), result.ok ? "valid" : "error", definition.id);
       }
       return result;
     } catch (_err) {
-      resetMineruValidationCache();
+      resetOcrValidationCache();
       if (showResult) {
-        setMineruValidationMessage("MinerU Token 检测失败，请稍后重试。", "error");
+        setOcrValidationMessage(`${definition.label} Token 检测失败，请稍后重试。`, "error", definition.id);
       }
       return {
         ok: false,
         status: "network_error",
-        summary: "MinerU Token 检测失败，请稍后重试。",
+        summary: `${definition.label} Token 检测失败，请稍后重试。`,
       };
     }
   }
@@ -111,7 +152,7 @@ export function mountBrowserCredentialsFeature({
     const modelApiKey = `${apiKey || ""}`.trim();
     if (!modelApiKey) {
       if (showResult) {
-        setDeepSeekValidationMessage("请先填写 DeepSeek Key。", "error");
+        setDeepSeekValidationMessage(TRANSLATION_PROVIDER_DEFINITION.validationMissingMessage, "error");
       }
       return { ok: false, status: 0 };
     }
@@ -127,12 +168,12 @@ export function mountBrowserCredentialsFeature({
       });
       if (resp.ok) {
         if (showResult) {
-          setDeepSeekValidationMessage("DeepSeek 接口连接成功。", "valid");
+          setDeepSeekValidationMessage(TRANSLATION_PROVIDER_DEFINITION.validationSuccessMessage, "valid");
         }
         return { ok: true, status: resp.status };
       }
       const summary = resp.status === 401
-        ? "DeepSeek Key 无效或已过期。"
+        ? TRANSLATION_PROVIDER_DEFINITION.validationUnauthorizedMessage
         : `DeepSeek 接口返回 ${resp.status}。`;
       if (showResult) {
         setDeepSeekValidationMessage(summary, "error");
@@ -140,7 +181,7 @@ export function mountBrowserCredentialsFeature({
       return { ok: false, status: resp.status, summary };
     } catch (_err) {
       if (showResult) {
-        setDeepSeekValidationMessage("DeepSeek 接口检测失败，请检查网络或浏览器跨域限制。", "error");
+        setDeepSeekValidationMessage(TRANSLATION_PROVIDER_DEFINITION.validationNetworkMessage, "error");
       }
       return { ok: false, status: 0 };
     }
@@ -150,9 +191,9 @@ export function mountBrowserCredentialsFeature({
     return {
       dialog: $("browser-credentials-dialog"),
       mineruInput: $("browser-mineru-token"),
+      paddleInput: $("browser-paddle-token"),
       apiKeyInput: $("browser-api-key"),
       mathModeSelect: $("browser-job-math-mode"),
-      translateTitlesInput: $("browser-translate-titles"),
       trigger: $("credentials-btn"),
     };
   }
@@ -160,41 +201,45 @@ export function mountBrowserCredentialsFeature({
   function syncBrowserDialogFromHiddenInputs() {
     const {
       mineruInput,
+      paddleInput,
       apiKeyInput,
       mathModeSelect,
-      translateTitlesInput,
     } = browserCredentialElements();
     const taskOptions = getTaskOptions?.() || {};
     if (mineruInput) {
       mineruInput.value = $("mineru_token").value || "";
     }
+    if (paddleInput) {
+      paddleInput.value = $("paddle_token").value || "";
+    }
     if (apiKeyInput) {
       apiKeyInput.value = $("api_key").value || "";
     }
+    syncOcrProviderControls(currentOcrProvider());
     if (mathModeSelect) {
       mathModeSelect.value = taskOptions.mathMode === "placeholder" ? "placeholder" : "direct_typst";
     }
-    if (translateTitlesInput) {
-      translateTitlesInput.checked = taskOptions.translateTitles !== false;
-    }
-    setMineruValidationMessage("", "");
+    setOcrValidationMessage("", "", "mineru");
+    setOcrValidationMessage("", "", "paddle");
     setDeepSeekValidationMessage("", "");
   }
 
   function persistBrowserCredentialsFromDialog() {
     const {
       mineruInput,
+      paddleInput,
       apiKeyInput,
       mathModeSelect,
-      translateTitlesInput,
     } = browserCredentialElements();
-    applyKeyInputs(
-      mineruInput?.value?.trim() || "",
-      apiKeyInput?.value?.trim() || "",
-    );
+    applyKeyInputs({
+      ocrProvider: currentOcrProvider(),
+      mineruToken: mineruInput?.value?.trim() || "",
+      paddleToken: paddleInput?.value?.trim() || "",
+      modelApiKey: apiKeyInput?.value?.trim() || "",
+    });
     saveTaskOptions?.({
       mathMode: mathModeSelect?.value || "direct_typst",
-      translateTitles: !!translateTitlesInput?.checked,
+      translateTitles: true,
     });
     saveBrowserStoredConfig();
   }
@@ -202,11 +247,13 @@ export function mountBrowserCredentialsFeature({
   async function persistDesktopCredentialsFromDialog() {
     const {
       mineruInput,
+      paddleInput,
       apiKeyInput,
       mathModeSelect,
-      translateTitlesInput,
     } = browserCredentialElements();
+    const provider = currentOcrProvider();
     const mineruToken = mineruInput?.value?.trim() || "";
+    const paddleToken = paddleInput?.value?.trim() || "";
     const modelApiKey = apiKeyInput?.value?.trim() || "";
     await saveDesktopConfig?.(
       mineruToken,
@@ -214,16 +261,20 @@ export function mountBrowserCredentialsFeature({
       async () => {
         await checkApiConnectivity?.();
       },
+      {
+        ocrProvider: provider,
+        paddleToken,
+      },
     );
-    applyKeyInputs(mineruToken, modelApiKey);
     saveTaskOptions?.({
       mathMode: mathModeSelect?.value || "direct_typst",
-      translateTitles: !!translateTitlesInput?.checked,
+      translateTitles: true,
     });
   }
 
   function hasBrowserCredentials() {
-    return Boolean(($("mineru_token").value || "").trim() && ($("api_key").value || "").trim());
+    const definition = getOcrProviderDefinition(currentOcrProvider());
+    return Boolean(($(`${definition.tokenField}`)?.value || "").trim() && ($("api_key").value || "").trim());
   }
 
   function openBrowserCredentialsDialog() {
@@ -236,17 +287,22 @@ export function mountBrowserCredentialsFeature({
     dialog.showModal();
   }
 
-  async function ensureMineruTokenReady({ onMissingToken, onInvalidToken } = {}) {
-    const token = ($("mineru_token").value || defaultMineruToken()).trim();
+  async function ensureOcrCredentialsReady({ onMissingToken, onInvalidToken } = {}) {
+    const provider = currentOcrProvider();
+    const definition = getOcrProviderDefinition(provider);
+    const fallbackToken = definition.id === "paddle" ? defaultPaddleToken() : defaultMineruToken();
+    const token = ($(`${definition.tokenField}`)?.value || fallbackToken).trim();
     if (!token) {
       onMissingToken?.();
-      setMineruValidationMessage("请先填写 MinerU Token。", "error");
+      setOcrValidationMessage(definition.validationMissingMessage, "error", definition.id);
       return false;
     }
-    if (state.validatedMineruToken === token && state.mineruValidationStatus === "valid") {
+    if (state.validatedOcrProvider === definition.id
+      && state.validatedOcrToken === token
+      && ["valid", "skipped"].includes(state.ocrValidationStatus)) {
       return true;
     }
-    const result = await runMineruTokenValidation(token, { showResult: !state.desktopMode });
+    const result = await runOcrTokenValidation(definition.id, token, { showResult: !state.desktopMode });
     if (result.ok) {
       return true;
     }
@@ -300,9 +356,13 @@ export function mountBrowserCredentialsFeature({
     tile.classList.toggle("is-ready", !show && uploadEnabled && !!state.uploadId);
   }
 
-  async function handleBrowserMineruValidate() {
-    const { mineruInput } = browserCredentialElements();
-    await runMineruTokenValidation(mineruInput?.value || "", { showResult: true });
+  function currentProviderInputValue() {
+    const { mineruInput, paddleInput } = browserCredentialElements();
+    return currentOcrProvider() === "paddle" ? paddleInput?.value || "" : mineruInput?.value || "";
+  }
+
+  async function handleBrowserOcrValidate() {
+    await runOcrTokenValidation(currentOcrProvider(), currentProviderInputValue(), { showResult: true });
   }
 
   async function handleBrowserDeepSeekValidate() {
@@ -311,19 +371,20 @@ export function mountBrowserCredentialsFeature({
   }
 
   async function handleBrowserCredentialSave() {
-    const { mineruInput, apiKeyInput } = browserCredentialElements();
-    const mineruToken = mineruInput?.value?.trim() || "";
+    const definition = getOcrProviderDefinition(currentOcrProvider());
+    const { mineruInput, paddleInput, apiKeyInput } = browserCredentialElements();
+    const ocrToken = (definition.id === "paddle" ? paddleInput?.value : mineruInput?.value)?.trim() || "";
     const modelApiKey = apiKeyInput?.value?.trim() || "";
-    if (!mineruToken || !modelApiKey) {
-      if (!mineruToken) {
-        setMineruValidationMessage("请先填写 MinerU Token。", "error");
+    if (!ocrToken || !modelApiKey) {
+      if (!ocrToken) {
+        setOcrValidationMessage(definition.validationMissingMessage, "error", definition.id);
       }
       if (!modelApiKey) {
-        setDeepSeekValidationMessage("请先填写 DeepSeek Key。", "error");
+        setDeepSeekValidationMessage(TRANSLATION_PROVIDER_DEFINITION.validationMissingMessage, "error");
       }
       return;
     }
-    const validation = await runMineruTokenValidation(mineruInput?.value || "", { showResult: true });
+    const validation = await runOcrTokenValidation(definition.id, ocrToken, { showResult: true });
     if (!validation.ok) {
       return;
     }
@@ -342,25 +403,40 @@ export function mountBrowserCredentialsFeature({
   }
 
   $("browser-mineru-token")?.addEventListener("input", () => {
-    resetMineruValidationCache();
-    setMineruValidationMessage("", "");
+    resetOcrValidationCache();
+    setOcrValidationMessage("", "", "mineru");
+  });
+  $("browser-paddle-token")?.addEventListener("input", () => {
+    resetOcrValidationCache();
+    setOcrValidationMessage("", "", "paddle");
   });
   $("browser-api-key")?.addEventListener("input", () => {
     setDeepSeekValidationMessage("", "");
   });
-  $("browser-mineru-validate-btn")?.addEventListener("click", handleBrowserMineruValidate);
+  $("browser-mineru-validate-btn")?.addEventListener("click", handleBrowserOcrValidate);
+  $("browser-paddle-validate-btn")?.addEventListener("click", handleBrowserOcrValidate);
   $("browser-deepseek-validate-btn")?.addEventListener("click", handleBrowserDeepSeekValidate);
   $("browser-credentials-save-btn")?.addEventListener("click", handleBrowserCredentialSave);
   $("credentials-btn")?.addEventListener("click", openBrowserCredentialsDialog);
   credentialDialog()?.querySelectorAll("[data-credential-tab]").forEach((tab) => {
-      tab.addEventListener("click", () => {
-        activateCredentialTab(tab.dataset.credentialTab || "api");
-      });
+    tab.addEventListener("click", () => {
+      activateCredentialTab(tab.dataset.credentialTab || "api");
     });
+  });
+  $("browser-ocr-provider-select")?.addEventListener("change", (event) => {
+    const provider = normalizeOcrProvider(event.currentTarget?.value);
+    $("ocr_provider").value = provider;
+    syncOcrProviderControls(provider);
+  });
+  $("browser-task-ocr-provider-select")?.addEventListener("change", (event) => {
+    const provider = normalizeOcrProvider(event.currentTarget?.value);
+    $("ocr_provider").value = provider;
+    syncOcrProviderControls(provider);
+  });
 
   return {
     activateCredentialTab,
-    ensureMineruTokenReady,
+    ensureOcrCredentialsReady,
     hasBrowserCredentials,
     openBrowserCredentialsDialog,
     updateCredentialGate,

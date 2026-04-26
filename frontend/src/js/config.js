@@ -5,17 +5,14 @@ import {
   DEFAULT_BASE_URL,
   DEFAULT_MODEL,
 } from "./constants.js";
+import { getDesktopHost, isDesktopHostAvailable } from "./desktop-host.js";
+import { DEFAULT_OCR_PROVIDER, normalizeOcrProvider } from "./provider-config.js";
 
 let runtimeConfig = { ...(window.__FRONT_RUNTIME_CONFIG__ || {}) };
+let desktopPersistedSnapshot = null;
 
-const tauriInternals = typeof window.__TAURI_INTERNALS__ === "object" ? window.__TAURI_INTERNALS__ : null;
-const desktopBridge = tauriInternals && typeof tauriInternals.invoke === "function"
-  ? {
-      invoke(command, args = {}) {
-        return tauriInternals.invoke(command, args);
-      },
-    }
-  : null;
+const API_V1_SUFFIX = "/api/v1";
+const desktopBridge = getDesktopHost();
 
 export function isFileProtocol() {
   return window.location.protocol === "file:";
@@ -50,11 +47,21 @@ export function isTrustedWindowMessage(event, expectedSource = null) {
 
 export function apiBase() {
   if (typeof runtimeConfig.apiBase === "string" && runtimeConfig.apiBase.trim()) {
-    return runtimeConfig.apiBase.trim().replace(/\/$/, "");
+    return runtimeConfig.apiBase.trim().replace(/\/+$/, "").replace(new RegExp(`${API_V1_SUFFIX}$`), "");
   }
   const host = window.location.hostname || "127.0.0.1";
   const protocol = window.location.protocol === "https:" ? "https:" : "http:";
   return `${protocol}//${host}:41000`;
+}
+
+export function buildApiUrl(apiPrefix = "", relativePath = "") {
+  const normalizedPrefix = `${apiPrefix || ""}`.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  const normalizedPath = `${relativePath || ""}`.trim().replace(/^\/+/, "");
+  const segments = [apiBase(), normalizedPrefix].filter(Boolean);
+  if (normalizedPath) {
+    segments.push(normalizedPath);
+  }
+  return segments.join("/");
 }
 
 export function mockScenario() {
@@ -74,13 +81,21 @@ export function buildApiHeaders(extraHeaders = {}) {
   const headers = { ...extraHeaders };
   const apiKey = frontendApiKey();
   if (apiKey) {
-    headers["X-API-KEY"] = apiKey;
+    headers["X-API-Key"] = apiKey;
   }
   return headers;
 }
 
 export function defaultMineruToken() {
   return typeof runtimeConfig.mineruToken === "string" ? runtimeConfig.mineruToken : "";
+}
+
+export function defaultPaddleToken() {
+  return typeof runtimeConfig.paddleToken === "string" ? runtimeConfig.paddleToken : "";
+}
+
+export function defaultOcrProvider() {
+  return normalizeOcrProvider(runtimeConfig.ocrProvider);
 }
 
 export function defaultModelApiKey() {
@@ -100,7 +115,7 @@ export function defaultModelBaseUrl() {
 }
 
 export function isDesktopMode() {
-  return !!desktopBridge;
+  return isDesktopHostAvailable();
 }
 
 export function setRuntimeConfig(nextConfig = {}) {
@@ -110,72 +125,277 @@ export function setRuntimeConfig(nextConfig = {}) {
   };
 }
 
-export function loadBrowserStoredConfig() {
-  if (isDesktopMode() || typeof window.localStorage === "undefined") {
+function isObject(value) {
+  return typeof value === "object" && value !== null;
+}
+
+function readStoredConfig(key) {
+  if (typeof window.localStorage === "undefined") {
     return {};
   }
   try {
-    const raw = window.localStorage.getItem(BROWSER_CONFIG_STORAGE_KEY);
+    const raw = window.localStorage.getItem(key);
     if (!raw) {
       return {};
     }
     const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed ? parsed : {};
+    return isObject(parsed) ? parsed : {};
   } catch (_err) {
     return {};
   }
 }
 
-export function saveBrowserStoredConfig() {
-  if (isDesktopMode() || typeof window.localStorage === "undefined") {
+function writeStoredConfig(key, payload = {}) {
+  if (typeof window.localStorage === "undefined") {
     return;
   }
-  const payload = {
-    mineruToken: $("mineru_token")?.value || "",
-    modelApiKey: $("api_key")?.value || "",
-  };
   try {
-    window.localStorage.setItem(BROWSER_CONFIG_STORAGE_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(key, JSON.stringify(payload));
   } catch (_err) {
     // Ignore storage quota / privacy mode failures.
   }
 }
 
+function normalizeBrowserStoredConfig(payload = {}) {
+  const source = isObject(payload) ? payload : {};
+  return {
+    ocrProvider: normalizeOcrProvider(source.ocrProvider),
+    mineruToken: typeof source.mineruToken === "string" ? source.mineruToken : "",
+    paddleToken: typeof source.paddleToken === "string" ? source.paddleToken : "",
+    modelApiKey: typeof source.modelApiKey === "string" ? source.modelApiKey : "",
+  };
+}
+
+function normalizeDeveloperStoredConfig(payload = {}) {
+  return isObject(payload) ? { ...payload } : {};
+}
+
+function currentBrowserStoredConfig() {
+  return normalizeBrowserStoredConfig({
+    ocrProvider: $("ocr_provider")?.value || DEFAULT_OCR_PROVIDER,
+    mineruToken: $("mineru_token")?.value || "",
+    paddleToken: $("paddle_token")?.value || "",
+    modelApiKey: $("api_key")?.value || "",
+  });
+}
+
+function desktopRuntimeToBrowserConfig(runtime = {}) {
+  const source = isObject(runtime) ? runtime : {};
+  return normalizeBrowserStoredConfig({
+    ocrProvider: source.ocrProvider,
+    mineruToken: source.mineruToken,
+    paddleToken: source.paddleToken,
+    modelApiKey: source.modelApiKey,
+  });
+}
+
+function buildRuntimeConfig(browserConfig = {}, developerConfig = {}, baseRuntimeConfig = {}) {
+  const nextBrowserConfig = normalizeBrowserStoredConfig(browserConfig);
+  const nextDeveloperConfig = normalizeDeveloperStoredConfig(developerConfig);
+  const nextRuntimeConfig = {
+    ...(isObject(baseRuntimeConfig) ? baseRuntimeConfig : {}),
+    ocrProvider: nextBrowserConfig.ocrProvider,
+    mineruToken: nextBrowserConfig.mineruToken,
+    paddleToken: nextBrowserConfig.paddleToken,
+    modelApiKey: nextBrowserConfig.modelApiKey,
+    developerConfig: nextDeveloperConfig,
+  };
+  if (typeof nextDeveloperConfig.model === "string" && nextDeveloperConfig.model.trim()) {
+    nextRuntimeConfig.model = nextDeveloperConfig.model.trim();
+  }
+  if (typeof nextDeveloperConfig.baseUrl === "string" && nextDeveloperConfig.baseUrl.trim()) {
+    nextRuntimeConfig.baseUrl = nextDeveloperConfig.baseUrl.trim();
+  }
+  return nextRuntimeConfig;
+}
+
+function normalizeDesktopPersistedConfig(payload = {}, fallback = {}) {
+  const source = isObject(payload) ? payload : {};
+  const base = isObject(fallback) ? fallback : {};
+  const runtimeSource = {
+    ...(isObject(base.runtimeConfig) ? base.runtimeConfig : {}),
+    ...(isObject(source.runtimeConfig) ? source.runtimeConfig : {}),
+  };
+  const browserConfig = normalizeBrowserStoredConfig({
+    ...(isObject(base.browserConfig) ? base.browserConfig : {}),
+    ...desktopRuntimeToBrowserConfig(runtimeSource),
+    ...(isObject(source.browserConfig) ? source.browserConfig : {}),
+  });
+  const developerConfig = normalizeDeveloperStoredConfig(
+    source.developerConfig
+      ?? runtimeSource.developerConfig
+      ?? base.developerConfig
+      ?? {},
+  );
+  return {
+    firstRunCompleted: source.firstRunCompleted ?? base.firstRunCompleted ?? false,
+    closeToTrayHintShown: source.closeToTrayHintShown ?? base.closeToTrayHintShown ?? false,
+    browserConfig,
+    developerConfig,
+    runtimeConfig: buildRuntimeConfig(browserConfig, developerConfig, runtimeSource),
+  };
+}
+
+function persistShadowConfig(browserConfig, developerConfig) {
+  writeStoredConfig(BROWSER_CONFIG_STORAGE_KEY, normalizeBrowserStoredConfig(browserConfig));
+  writeStoredConfig(DEVELOPER_CONFIG_STORAGE_KEY, normalizeDeveloperStoredConfig(developerConfig));
+}
+
+async function saveDesktopPersistedConfig(partial = {}) {
+  const baseline = desktopPersistedSnapshot || normalizeDesktopPersistedConfig({}, {
+    browserConfig: readStoredConfig(BROWSER_CONFIG_STORAGE_KEY),
+    developerConfig: readStoredConfig(DEVELOPER_CONFIG_STORAGE_KEY),
+    runtimeConfig,
+  });
+  const merged = normalizeDesktopPersistedConfig({
+    ...baseline,
+    ...partial,
+    browserConfig: partial.browserConfig
+      ? { ...baseline.browserConfig, ...partial.browserConfig }
+      : baseline.browserConfig,
+    developerConfig: partial.developerConfig
+      ? { ...baseline.developerConfig, ...partial.developerConfig }
+      : baseline.developerConfig,
+    runtimeConfig: {
+      ...baseline.runtimeConfig,
+      ...(isObject(partial.runtimeConfig) ? partial.runtimeConfig : {}),
+    },
+  });
+  const savePayload = {
+    firstRunCompleted: merged.firstRunCompleted,
+    closeToTrayHintShown: merged.closeToTrayHintShown,
+    ocrProvider: merged.browserConfig.ocrProvider,
+    mineruToken: merged.browserConfig.mineruToken,
+    paddleToken: merged.browserConfig.paddleToken,
+    modelApiKey: merged.browserConfig.modelApiKey,
+    developerConfig: merged.developerConfig,
+    runtimeConfig: merged.runtimeConfig,
+  };
+  const response = await desktopBridge.saveDesktopConfig(savePayload);
+  desktopPersistedSnapshot = normalizeDesktopPersistedConfig(response, savePayload);
+  setRuntimeConfig(desktopPersistedSnapshot.runtimeConfig);
+  persistShadowConfig(desktopPersistedSnapshot.browserConfig, desktopPersistedSnapshot.developerConfig);
+  return desktopPersistedSnapshot;
+}
+
+export async function savePersistedDesktopConfig(partial = {}) {
+  if (!isDesktopMode()) {
+    return {
+      browserConfig: normalizeBrowserStoredConfig(partial.browserConfig),
+      developerConfig: normalizeDeveloperStoredConfig(partial.developerConfig),
+      runtimeConfig: buildRuntimeConfig(
+        partial.browserConfig,
+        partial.developerConfig,
+        partial.runtimeConfig,
+      ),
+      firstRunCompleted: !!partial.firstRunCompleted,
+      closeToTrayHintShown: !!partial.closeToTrayHintShown,
+    };
+  }
+  return saveDesktopPersistedConfig(partial);
+}
+
+export async function loadPersistedConfig() {
+  const shadowBrowserConfig = readStoredConfig(BROWSER_CONFIG_STORAGE_KEY);
+  const shadowDeveloperConfig = readStoredConfig(DEVELOPER_CONFIG_STORAGE_KEY);
+  if (!isDesktopMode()) {
+    return {
+      browserConfig: normalizeBrowserStoredConfig(shadowBrowserConfig),
+      developerConfig: normalizeDeveloperStoredConfig(shadowDeveloperConfig),
+      runtimeConfig,
+      firstRunCompleted: false,
+      closeToTrayHintShown: false,
+    };
+  }
+  const payload = await desktopBridge.loadDesktopConfig();
+  desktopPersistedSnapshot = normalizeDesktopPersistedConfig(payload, {
+    browserConfig: shadowBrowserConfig,
+    developerConfig: shadowDeveloperConfig,
+    runtimeConfig,
+  });
+  setRuntimeConfig(desktopPersistedSnapshot.runtimeConfig);
+  persistShadowConfig(desktopPersistedSnapshot.browserConfig, desktopPersistedSnapshot.developerConfig);
+  return desktopPersistedSnapshot;
+}
+
+export function loadBrowserStoredConfig() {
+  return isDesktopMode() && desktopPersistedSnapshot
+    ? desktopPersistedSnapshot.browserConfig
+    : normalizeBrowserStoredConfig(readStoredConfig(BROWSER_CONFIG_STORAGE_KEY));
+}
+
+export function saveBrowserStoredConfig(payload = currentBrowserStoredConfig()) {
+  writeStoredConfig(BROWSER_CONFIG_STORAGE_KEY, normalizeBrowserStoredConfig(payload));
+}
+
+export async function savePersistedBrowserStoredConfig(payload = currentBrowserStoredConfig()) {
+  const nextBrowserConfig = normalizeBrowserStoredConfig(payload);
+  saveBrowserStoredConfig(nextBrowserConfig);
+  if (!isDesktopMode()) {
+    return {
+      browserConfig: nextBrowserConfig,
+      developerConfig: loadDeveloperStoredConfig(),
+      runtimeConfig,
+      firstRunCompleted: false,
+      closeToTrayHintShown: false,
+    };
+  }
+  return saveDesktopPersistedConfig({ browserConfig: nextBrowserConfig });
+}
+
 export function loadDeveloperStoredConfig() {
-  if (typeof window.localStorage === "undefined") {
-    return {};
-  }
-  try {
-    const raw = window.localStorage.getItem(DEVELOPER_CONFIG_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    return typeof parsed === "object" && parsed ? parsed : {};
-  } catch (_err) {
-    return {};
-  }
+  return isDesktopMode() && desktopPersistedSnapshot
+    ? desktopPersistedSnapshot.developerConfig
+    : normalizeDeveloperStoredConfig(readStoredConfig(DEVELOPER_CONFIG_STORAGE_KEY));
 }
 
 export function saveDeveloperStoredConfig(payload = {}) {
-  if (typeof window.localStorage === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(DEVELOPER_CONFIG_STORAGE_KEY, JSON.stringify(payload));
-  } catch (_err) {
-    // Ignore storage failures.
-  }
+  writeStoredConfig(DEVELOPER_CONFIG_STORAGE_KEY, normalizeDeveloperStoredConfig(payload));
 }
 
-export function applyKeyInputs(mineruToken, modelApiKey) {
-  $("mineru_token").value = mineruToken || "";
-  $("api_key").value = modelApiKey || "";
+export async function savePersistedDeveloperStoredConfig(payload = {}) {
+  const nextDeveloperConfig = normalizeDeveloperStoredConfig(payload);
+  saveDeveloperStoredConfig(nextDeveloperConfig);
+  if (!isDesktopMode()) {
+    return {
+      browserConfig: loadBrowserStoredConfig(),
+      developerConfig: nextDeveloperConfig,
+      runtimeConfig,
+      firstRunCompleted: false,
+      closeToTrayHintShown: false,
+    };
+  }
+  return saveDesktopPersistedConfig({ developerConfig: nextDeveloperConfig });
+}
+
+export function applyKeyInputs(credentialsOrMineruToken, legacyModelApiKey = "") {
+  const credentials = typeof credentialsOrMineruToken === "object" && credentialsOrMineruToken
+    ? credentialsOrMineruToken
+    : {
+        ocrProvider: DEFAULT_OCR_PROVIDER,
+        mineruToken: credentialsOrMineruToken,
+        paddleToken: "",
+        modelApiKey: legacyModelApiKey,
+      };
+  const ocrProvider = normalizeOcrProvider(credentials.ocrProvider);
+  const mineruToken = credentials.mineruToken || "";
+  const paddleToken = credentials.paddleToken || "";
+  const modelApiKey = credentials.modelApiKey || "";
+  $("ocr_provider").value = ocrProvider;
+  $("mineru_token").value = mineruToken;
+  $("paddle_token").value = paddleToken;
+  $("api_key").value = modelApiKey;
+  if ($("setup-ocr-provider")) {
+    $("setup-ocr-provider").value = ocrProvider;
+  }
   if ($("setup-mineru-token")) {
-    $("setup-mineru-token").value = mineruToken || "";
+    $("setup-mineru-token").value = mineruToken;
+  }
+  if ($("setup-paddle-token")) {
+    $("setup-paddle-token").value = paddleToken;
   }
   if ($("setup-model-api-key")) {
-    $("setup-model-api-key").value = modelApiKey || "";
+    $("setup-model-api-key").value = modelApiKey;
   }
 }
 
@@ -184,4 +404,11 @@ export async function desktopInvoke(command, args = {}) {
     throw new Error("桌面接口不可用");
   }
   return desktopBridge.invoke(command, args);
+}
+
+export async function openDesktopOutputDirectory() {
+  if (!desktopBridge) {
+    throw new Error("桌面接口不可用");
+  }
+  return desktopBridge.openOutputDirectory();
 }

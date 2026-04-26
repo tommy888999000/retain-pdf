@@ -119,7 +119,8 @@ async fn run_job(deps: ProcessRuntimeDeps, job_id: String) -> Result<()> {
     if should_skip_job_execution(&deps, &job_id).await? {
         return Ok(());
     }
-    let finished_job = dispatch_workflow(deps.clone(), deps.db.get_job(&job_id)?.into_runtime()).await?;
+    let finished_job =
+        dispatch_workflow(deps.clone(), deps.db.get_job(&job_id)?.into_runtime()).await?;
     persist_runtime_job_with_resources(
         deps.db.as_ref(),
         &deps.config.data_root,

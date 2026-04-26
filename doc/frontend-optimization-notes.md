@@ -203,12 +203,14 @@
   - desktop bridge config
 - 页面逻辑里到处判断 `desktopMode`
 
-建议：
+当前进展：
 
-- 前端同学可以抽一层 `appEnv`：
-  - `mode: browser | desktop`
-  - `capabilities`
-  - `credentialSource`
+- 已新增 [desktop-host.js](/home/wxyhgk/tmp/Code/frontend/src/js/desktop-host.js)，由它统一识别 `retainPdfDesktop`，并只保留 `__TAURI_INTERNALS__` 兼容 shim。
+- [config.js](/home/wxyhgk/tmp/Code/frontend/src/js/config.js) 不再直接探测旧桥名，桌面调用统一从 host 抽象进入。
+
+后续建议：
+
+- 可以继续把 `desktop.js` 里“首次启动/保存配置”这类桌面专属流程再往宿主层收一层。
 - UI 层只读能力，不直接读宿主差异。
 
 ### 8. 样式量集中在单文件，组件边界不清楚

@@ -5,7 +5,9 @@
     <div id="job-warning" class="job-warning hidden">检测到上一个任务仍在处理中。建议先等待当前任务结束，再提交新的 PDF。</div>
 
     <form id="job-form" class="form" novalidate>
+      <input id="ocr_provider" name="ocr_provider" type="hidden" value="mineru" />
       <input id="mineru_token" name="mineru_token" type="hidden" value="" />
+      <input id="paddle_token" name="paddle_token" type="hidden" value="" />
       <input id="api_key" name="api_key" type="hidden" value="" />
 
       <div class="upload-tile upload-tile-hero">
@@ -21,7 +23,7 @@
               </svg>
             </span>
             <strong id="credential-gate-title">请先完成接口设置</strong>
-            <em id="credential-gate-help">右下角可随时修改 MinerU Token 和 DeepSeek Key，填写后即可上传 PDF。</em>
+            <em id="credential-gate-help">右下角可随时修改 OCR Provider 凭证和 DeepSeek Key，填写后即可上传 PDF。</em>
           </div>
         </div>
         <span id="upload-glyph" class="upload-glyph" aria-hidden="true">

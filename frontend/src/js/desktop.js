@@ -1,5 +1,10 @@
 import { $ } from "./dom.js";
-import { applyKeyInputs, desktopInvoke, setRuntimeConfig } from "./config.js";
+import {
+  applyKeyInputs,
+  loadPersistedConfig,
+  savePersistedDesktopConfig,
+  savePersistedBrowserStoredConfig,
+} from "./config.js";
 import { state } from "./state.js";
 
 export function showDesktopUi() {
@@ -33,12 +38,12 @@ export function closeSetupDialog() {
   }
 }
 
-export async function bootstrapDesktop() {
+export async function bootstrapDesktop(initialConfig = null) {
   state.desktopMode = true;
   showDesktopUi();
-  const payload = await desktopInvoke("load_desktop_config");
-  setRuntimeConfig(payload.runtimeConfig);
-  applyKeyInputs(payload.runtimeConfig.mineruToken, payload.runtimeConfig.modelApiKey);
+  const payload = initialConfig || await loadPersistedConfig();
+  state.developerConfig = payload.developerConfig || {};
+  applyKeyInputs(payload.browserConfig || {});
   state.desktopConfigured = !!payload.firstRunCompleted;
   if (!state.desktopConfigured) {
     openSetupDialog();
@@ -47,19 +52,36 @@ export async function bootstrapDesktop() {
   }
 }
 
-export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave) {
-  const payload = await desktopInvoke("save_desktop_config", {
-    payload: {
-      mineruToken,
-      modelApiKey,
-    },
-  });
-  setRuntimeConfig(payload.runtimeConfig);
-  applyKeyInputs(payload.runtimeConfig.mineruToken, payload.runtimeConfig.modelApiKey);
-  state.desktopConfigured = !!payload.firstRunCompleted;
-  closeSetupDialog();
-  $("error-box").textContent = "-";
-  if (afterSave) {
-    await afterSave();
+export async function saveDesktopConfig(mineruToken, modelApiKey, afterSave, extraBrowserConfig = {}) {
+  let markConfigured = false;
+  let nextBrowserConfig = {
+    ...extraBrowserConfig,
+    mineruToken,
+    modelApiKey,
+  };
+  let callback = afterSave;
+  if (typeof mineruToken === "object" && mineruToken !== null) {
+    nextBrowserConfig = { ...(mineruToken.browserConfig || mineruToken) };
+    markConfigured = !!mineruToken.markConfigured;
+    callback = typeof modelApiKey === "function" ? modelApiKey : afterSave;
   }
+  let persisted = await savePersistedBrowserStoredConfig({
+    ...nextBrowserConfig,
+  });
+  state.developerConfig = persisted.developerConfig || state.developerConfig;
+  applyKeyInputs(persisted.browserConfig || {});
+  if (callback) {
+    await callback();
+  }
+  if (markConfigured && !persisted.firstRunCompleted) {
+    persisted = await savePersistedDesktopConfig({ firstRunCompleted: true });
+  }
+  state.developerConfig = persisted.developerConfig || state.developerConfig;
+  applyKeyInputs(persisted.browserConfig || {});
+  state.desktopConfigured = !!persisted.firstRunCompleted;
+  if (state.desktopConfigured) {
+    closeSetupDialog();
+    $("error-box").textContent = "-";
+  }
+  return persisted;
 }

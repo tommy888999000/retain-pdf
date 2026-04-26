@@ -20,34 +20,56 @@ curl -X POST http://127.0.0.1:41000/api/v1/uploads \
 
 `POST /api/v1/jobs`
 
+当前正式 JSON 契约是 grouped request body，不再接受旧扁平字段。
+
 最常用请求体：
 
 ```json
 {
-  "workflow": "mineru",
-  "upload_id": "20260402073151-a80618",
-  "mode": "sci",
-  "model": "deepseek-v4-flash",
-  "base_url": "https://api.deepseek.com/v1",
-  "api_key": "sk-xxxx",
-  "mineru_token": "mineru-xxxx",
-  "model_version": "vlm",
-  "language": "ch",
-  "render_mode": "auto",
-  "skip_title_translation": false,
-  "batch_size": 1,
-  "workers": 100,
-  "classify_batch_size": 12,
-  "compile_workers": 8,
-  "rule_profile_name": "general_sci",
-  "custom_rules_text": ""
+  "workflow": "book",
+  "source": {
+    "upload_id": "20260402073151-a80618"
+  },
+  "ocr": {
+    "provider": "mineru",
+    "mineru_token": "mineru-xxxx",
+    "model_version": "vlm",
+    "language": "ch",
+    "page_ranges": ""
+  },
+  "translation": {
+    "mode": "sci",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com/v1",
+    "api_key": "sk-xxxx",
+    "skip_title_translation": false,
+    "batch_size": 1,
+    "workers": 100,
+    "classify_batch_size": 12,
+    "rule_profile_name": "general_sci",
+    "custom_rules_text": ""
+  },
+  "render": {
+    "render_mode": "auto",
+    "compile_workers": 8
+  },
+  "runtime": {
+    "timeout_seconds": 1800
+  }
 }
 ```
 
 补充说明：
 
+- `workflow=book`：OCR -> Normalize -> Translate -> Render
+- `workflow=translate`：OCR -> Normalize -> Translate
+- `workflow=render`：基于已有产物重跑渲染，此时 `source.artifact_job_id` 替代 `source.upload_id`
+- `workflow=ocr` 使用独立入口 `POST /api/v1/ocr/jobs`，不走这个接口
+- `ocr.provider=mineru` 时需要 `ocr.mineru_token`
+- 翻译阶段需要 `translation.base_url`、`translation.api_key`、`translation.model`
 - `skip_title_translation=false`：翻译标题
 - `skip_title_translation=true`：跳过标题翻译，保留原文标题
+- 历史扁平字段如 `upload_id`、`mineru_token`、`model`、`render_mode` 不再是 `POST /api/v1/jobs` 的正式 JSON 契约
 
 ## 3. 查询任务详情
 
@@ -83,7 +105,38 @@ curl -X POST http://127.0.0.1:41000/api/v1/uploads \
 
 `POST /api/v1/jobs/{job_id}/cancel`
 
-## 7. 常见状态
+## 7. OCR 凭证检测
+
+- `POST /api/v1/providers/mineru/validate-token`
+- `POST /api/v1/providers/paddle/validate-token`
+
+示例：
+
+```json
+{
+  "paddle_token": "paddle-access-token",
+  "base_url": "https://paddleocr.aistudio-app.com"
+}
+```
+
+返回重点字段：
+
+- `ok`
+- `status`
+- `summary`
+- `retryable`
+- `provider_code`
+- `provider_message`
+- `operator_hint`
+- `trace_id`
+
+补充说明：
+
+- Paddle 检测不会提交真实 OCR 任务，而是用随机 `jobId` 做只鉴权探测
+- 当 Paddle 返回“任务不存在 / 404”时，后端会视为鉴权通过
+- 401 / 403 仍会被视为 token 无效
+
+## 8. 常见状态
 
 `status`：
 

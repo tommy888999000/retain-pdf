@@ -18,6 +18,7 @@ import {
   summarizeInvocationProtocol,
   summarizeInvocationSchemaVersion,
   summarizePublicError,
+  summarizeStageLabel,
   summarizeStageDetail,
   summarizeStatus,
 } from "./job.js";
@@ -213,14 +214,9 @@ function updateRing(job) {
   if (!ringLabel || !ringValue || !ringElapsed || !stageIcon || !pdfBtn || !readerBtn || !actionRow) {
     return;
   }
-  const stageText = summarizeStageDetail(job);
-  const ringLabelText = job.status === "succeeded"
-    ? "处理完成"
-    : job.status === "failed"
-      ? "处理失败"
-      : job.status === "queued"
-      ? "排队中"
-        : "处理中";
+  const presentation = resolveDisplayedStagePresentation(job, state.currentJobEvents);
+  const stageText = presentation.detail;
+  const ringLabelText = presentation.label;
   const ringValueText = stageText || "准备中";
   const iconMarkup = stageIconMarkup(job.status, stageText);
   const statusCard = document.querySelector("job-status-card");
@@ -281,8 +277,9 @@ function summarizeMathMode(job) {
 function renderRuntimeDetails(job) {
   const durations = resolveLiveDurations(job);
   const component = document.querySelector("status-detail-dialog");
+  const presentation = resolveDisplayedStagePresentation(job, state.currentJobEvents);
   const details = {
-    currentStage: summarizeRuntimeField(job.current_stage || job.stage_detail),
+    currentStage: presentation.detail,
     stageElapsed: durations.stageElapsedText,
     totalElapsed: durations.totalElapsedText,
     retryCount: `${job.retry_count ?? 0}`,
@@ -566,7 +563,8 @@ function renderEvents(eventsPayload) {
 }
 
 function buildStatusDetailSnapshot(job, eventsPayload) {
-  const stageText = summarizeStageDetail(job);
+  const presentation = resolveDisplayedStagePresentation(job, eventsPayload);
+  const stageText = presentation.detail;
   const note = job.status === "failed"
     ? "查看失败原因、建议与事件流"
     : job.status === "succeeded"
@@ -626,7 +624,7 @@ function buildStatusDetailSnapshot(job, eventsPayload) {
       note,
     },
     runtime: {
-      currentStage: summarizeRuntimeField(job.current_stage || job.stage_detail),
+      currentStage: presentation.detail,
       stageElapsed: runtimeDurations.stageElapsedText,
       totalElapsed: runtimeDurations.totalElapsedText,
       retryCount: `${job.retry_count ?? 0}`,
@@ -854,15 +852,39 @@ export function updateJobWarning(status) {
 
 export function renderJob(payload, eventsPayload = null, manifestPayload = null) {
   const job = normalizeJobPayload(payload);
+  const nextJobId = job.job_id || state.currentJobId;
   state.currentJobSnapshot = job;
-  state.currentJobManifest = manifestPayload || null;
-  state.currentJobId = job.job_id || state.currentJobId;
+  state.currentJobId = nextJobId;
+  if (eventsPayload === null && state.currentJobEventsJobId && state.currentJobEventsJobId !== nextJobId) {
+    state.currentJobEvents = null;
+    state.currentJobEventsJobId = "";
+    state.currentJobEventsFetchedAt = 0;
+  }
+  if (manifestPayload === null && state.currentJobManifestJobId && state.currentJobManifestJobId !== nextJobId) {
+    state.currentJobManifest = null;
+    state.currentJobManifestJobId = "";
+    state.currentJobManifestFetchedAt = 0;
+  }
+  if (eventsPayload !== null) {
+    state.currentJobEvents = eventsPayload;
+    state.currentJobEventsJobId = nextJobId;
+    state.currentJobEventsFetchedAt = Date.now();
+  }
+  if (manifestPayload !== null) {
+    state.currentJobManifest = manifestPayload;
+    state.currentJobManifestJobId = nextJobId;
+    state.currentJobManifestFetchedAt = Date.now();
+  }
+  const stagePresentation = resolveDisplayedStagePresentation(
+    job,
+    eventsPayload !== null ? eventsPayload : state.currentJobEvents,
+  );
   state.currentJobStartedAt = resolveElapsedStart(job);
   state.currentJobFinishedAt = (job.finished_at || job.updated_at || "").trim();
   setWorkflowSections(job);
   safeSetText("job-id", job.job_id || "-");
   safeSetText("job-summary", summarizeStatus(job.status || "idle"));
-  safeSetText("job-stage-detail", summarizeStageDetail(job));
+  safeSetText("job-stage-detail", stagePresentation.detail);
   safeSetText("job-finished-at", formatJobFinishedAt(job));
   safeSetText("query-job-finished-at", formatJobFinishedAt(job));
   if ($("job-id-input")) {
@@ -881,22 +903,16 @@ export function renderJob(payload, eventsPayload = null, manifestPayload = null)
       || hasReadyManifestArtifact(manifestPayload, "result_pdf")
       || actions.pdfEnabled),
   );
-  const stageText = summarizeStageDetail(job);
+  const stageText = stagePresentation.detail;
   const statusCard = document.querySelector("job-status-card");
   if (statusCard?.renderSnapshot) {
     statusCard.renderSnapshot({
-      label: job.status === "succeeded"
-        ? "处理完成"
-        : job.status === "failed"
-          ? "处理失败"
-          : job.status === "queued"
-            ? "排队中"
-            : "处理中",
+      label: stagePresentation.label,
       value: stageText || "准备中",
       iconMarkup: stageIconMarkup(job.status, stageText),
       elapsed: resolveLiveDurations(job).totalElapsedText,
-      progressCurrent: job.progress_current,
-      progressTotal: job.progress_total,
+      progressCurrent: stagePresentation.progressCurrent,
+      progressTotal: stagePresentation.progressTotal,
       progressFallbackText: "-",
       progressPercent: job.progress_percent,
       pdfReady: actions.pdfEnabled && !!actions.pdf && job.status === "succeeded",
@@ -908,8 +924,8 @@ export function renderJob(payload, eventsPayload = null, manifestPayload = null)
     setLinearProgress(
       "job-progress-bar",
       "job-progress-text",
-      job.progress_current,
-      job.progress_total,
+      stagePresentation.progressCurrent,
+      stagePresentation.progressTotal,
       "-",
       job.progress_percent,
     );
@@ -927,4 +943,51 @@ export function renderJob(payload, eventsPayload = null, manifestPayload = null)
   }
   startElapsedTicker();
   updateJobWarning(job.status || "idle");
+}
+
+function latestStageEvent(job, eventsPayload) {
+  const items = Array.isArray(eventsPayload?.items) ? eventsPayload.items : [];
+  const currentStage = `${job?.current_stage || job?.stage || ""}`.trim();
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index] || {};
+    const itemStage = `${item.stage || ""}`.trim();
+    if (!itemStage) {
+      continue;
+    }
+    if (currentStage && itemStage !== currentStage) {
+      continue;
+    }
+    if (!item.stage_detail && !item.message && !Number.isFinite(Number(item.progress_current))) {
+      continue;
+    }
+    return item;
+  }
+  return null;
+}
+
+function resolveDisplayedStagePresentation(job, eventsPayload) {
+  const fallback = {
+    label: summarizeStageLabel(job),
+    detail: summarizeStageDetail(job),
+    progressCurrent: job?.progress_current,
+    progressTotal: job?.progress_total,
+  };
+  const event = latestStageEvent(job, eventsPayload);
+  if (!event) {
+    return fallback;
+  }
+  const eventPayload = {
+    ...job,
+    status: job.status,
+    current_stage: event.stage || job.current_stage || job.stage || "",
+    stage_detail: event.stage_detail || event.message || job.stage_detail || "",
+    progress_current: Number.isFinite(Number(event.progress_current)) ? Number(event.progress_current) : job.progress_current,
+    progress_total: Number.isFinite(Number(event.progress_total)) ? Number(event.progress_total) : job.progress_total,
+  };
+  return {
+    label: summarizeStageLabel(eventPayload),
+    detail: summarizeStageDetail(eventPayload),
+    progressCurrent: eventPayload.progress_current,
+    progressTotal: eventPayload.progress_total,
+  };
 }

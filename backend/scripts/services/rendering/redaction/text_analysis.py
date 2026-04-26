@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import fitz
 
+from services.rendering.redaction.redaction_config import SAFE_DIRECT_REDACTION_IOU_THRESHOLD
+from services.rendering.redaction.redaction_config import SAFE_DIRECT_REDACTION_SIZE_TOLERANCE
 from services.rendering.redaction.redaction_geometry import clip_rect
 from services.rendering.redaction.redaction_geometry import expand_item_rect
 from services.rendering.redaction.redaction_geometry import expand_word_rect
@@ -52,6 +54,31 @@ def extract_page_text_blocks(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
             continue
         blocks.append((rect, text))
     return blocks
+
+
+def extract_page_text_spans(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
+    try:
+        text_dict = page.get_text("dict")
+    except Exception:
+        return []
+
+    spans: list[tuple[fitz.Rect, str]] = []
+    for block in text_dict.get("blocks", []) or []:
+        if block.get("type") != 0:
+            continue
+        for line in block.get("lines", []) or []:
+            for span in line.get("spans", []) or []:
+                bbox = span.get("bbox", [])
+                if len(bbox) != 4:
+                    continue
+                rect = fitz.Rect(bbox)
+                if rect.is_empty:
+                    continue
+                text = str(span.get("text", "") or "").strip()
+                if not text:
+                    continue
+                spans.append((rect, text))
+    return spans
 
 
 def extract_item_word_entries(
@@ -232,6 +259,66 @@ def rects_overlap_area(a: fitz.Rect, b: fitz.Rect) -> float:
     return rect_area(inter)
 
 
+def rect_iou(a: fitz.Rect, b: fitz.Rect) -> float:
+    inter = rects_overlap_area(a, b)
+    if inter <= 0.0:
+        return 0.0
+    union = rect_area(a) + rect_area(b) - inter
+    if union <= 0.0:
+        return 0.0
+    return inter / union
+
+
+def rect_center_contains(rect: fitz.Rect, target: fitz.Rect) -> bool:
+    cx = (target.x0 + target.x1) / 2.0
+    cy = (target.y0 + target.y1) / 2.0
+    return rect_contains_point(rect, cx, cy)
+
+
+def relative_size_error(expected: float, actual: float) -> float:
+    baseline = max(expected, 1.0)
+    return abs(actual - expected) / baseline
+
+
+def safe_direct_redaction_rect(
+    page: fitz.Page,
+    item: dict,
+    rect: fitz.Rect,
+    *,
+    competing_rects: list[fitz.Rect] | None = None,
+) -> fitz.Rect | None:
+    del item
+    if rect.is_empty:
+        return None
+
+    raw_bbox = fitz.Rect(rect)
+    span_entries = extract_page_text_spans(page)
+    if not span_entries:
+        return None
+    owned_spans = owned_text_block_entries(raw_bbox, span_entries, competing_rects=competing_rects)
+    if not owned_spans:
+        return None
+
+    matched: list[fitz.Rect] = []
+    for span_rect, _span_text in owned_spans:
+        if not rect_center_contains(span_rect, raw_bbox):
+            continue
+        width_error = relative_size_error(raw_bbox.width, span_rect.width)
+        height_error = relative_size_error(raw_bbox.height, span_rect.height)
+        iou = rect_iou(raw_bbox, span_rect)
+        if width_error > SAFE_DIRECT_REDACTION_SIZE_TOLERANCE:
+            continue
+        if height_error > SAFE_DIRECT_REDACTION_SIZE_TOLERANCE:
+            continue
+        if iou < SAFE_DIRECT_REDACTION_IOU_THRESHOLD:
+            continue
+        matched.append(span_rect)
+
+    if len(matched) != 1:
+        return None
+    return expand_word_rect(matched[0])
+
+
 def rect_intersects_intrusive_display_text(rect: fitz.Rect, intrusive_rects: list[fitz.Rect]) -> bool:
     for intrusive_rect in intrusive_rects:
         if rects_overlap_area(rect, intrusive_rect) >= DISPLAY_INTRUSIVE_OVERLAP_AREA_MIN:
@@ -249,7 +336,8 @@ def item_has_removable_text(
     rect: fitz.Rect,
     page_words: list[tuple] | None = None,
 ) -> bool:
-    return bool(item_removable_text_rects(page, item, rect, page_words=page_words))
+    del page_words
+    return safe_direct_redaction_rect(page, item, rect) is not None
 
 
 def item_removable_text_rects(
@@ -260,6 +348,10 @@ def item_removable_text_rects(
     special_math_rects: list[fitz.Rect] | None = None,
     competing_rects: list[fitz.Rect] | None = None,
 ) -> list[fitz.Rect]:
+    matched = safe_direct_redaction_rect(page, item, rect, competing_rects=competing_rects)
+    if matched is not None:
+        return [matched]
+
     del special_math_rects
     source_text = (item.get("source_text") or item.get("protected_source_text") or "").strip()
     if not source_text:

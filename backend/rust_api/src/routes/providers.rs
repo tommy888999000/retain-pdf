@@ -7,6 +7,7 @@ use crate::ocr_provider::mineru::{
     extract_provider_error_code, extract_provider_message, extract_provider_trace_id,
     map_provider_error_code, MineruClient,
 };
+use crate::ocr_provider::paddle::{PaddleClient, PaddleProviderError};
 use crate::ocr_provider::OcrErrorCategory;
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +31,13 @@ pub struct MineruTokenValidationView {
     pub trace_id: Option<String>,
     pub base_url: String,
     pub checked_at: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PaddleTokenValidationRequest {
+    pub paddle_token: String,
+    #[serde(default)]
+    pub base_url: String,
 }
 
 pub async fn validate_mineru_token(
@@ -71,6 +79,39 @@ pub async fn validate_mineru_token(
             checked_at,
         },
         Err(err) => classify_probe_error(err.to_string(), client.base_url.clone(), checked_at),
+    };
+
+    Ok(Json(ApiResponse::ok(view)))
+}
+
+pub async fn validate_paddle_token(
+    Json(payload): Json<PaddleTokenValidationRequest>,
+) -> Result<Json<ApiResponse<MineruTokenValidationView>>, AppError> {
+    let token = payload.paddle_token.trim();
+    if token.is_empty() {
+        return Err(AppError::bad_request("paddle_token is required"));
+    }
+
+    let base_url = payload.base_url.trim().to_string();
+    let client = PaddleClient::new(base_url.clone(), token.to_string());
+    let checked_at = now_iso();
+
+    let view = match client.probe_token().await {
+        Ok(result) => MineruTokenValidationView {
+            ok: true,
+            status: "valid",
+            summary: "Paddle Access Token 可用".to_string(),
+            retryable: false,
+            provider_code: Some("0".to_string()),
+            provider_message: Some("ok".to_string()),
+            operator_hint: Some(
+                "鉴权已通过；当前使用随机任务 ID 进行只鉴权探测，不会触发真实 OCR 任务".to_string(),
+            ),
+            trace_id: result.trace_id,
+            base_url: client.base_url.clone(),
+            checked_at,
+        },
+        Err(err) => classify_paddle_probe_error(err, client.base_url.clone(), checked_at),
     };
 
     Ok(Json(ApiResponse::ok(view)))
@@ -142,9 +183,100 @@ fn classify_probe_error(
     }
 }
 
+fn classify_paddle_probe_error(
+    err: anyhow::Error,
+    base_url: String,
+    checked_at: String,
+) -> MineruTokenValidationView {
+    if let Some(provider_err) = err.downcast_ref::<PaddleProviderError>() {
+        let info = provider_err.info();
+        let valid_404 = matches!(info.http_status, Some(404))
+            || matches!(info.provider_code.as_deref(), Some("404"));
+        if valid_404 {
+            return MineruTokenValidationView {
+                ok: true,
+                status: "valid",
+                summary: "Paddle Access Token 可用".to_string(),
+                retryable: false,
+                provider_code: info.provider_code.clone().or(Some("404".to_string())),
+                provider_message: info
+                    .provider_message
+                    .clone()
+                    .or(Some("probe task not found".to_string())),
+                operator_hint: Some("鉴权已通过；随机探测任务不存在属于预期结果".to_string()),
+                trace_id: info.trace_id.clone(),
+                base_url,
+                checked_at,
+            };
+        }
+
+        let status = match info.category {
+            OcrErrorCategory::Unauthorized | OcrErrorCategory::PermissionDenied => "unauthorized",
+            OcrErrorCategory::RemoteReadTimeout | OcrErrorCategory::ServiceUnavailable => {
+                "network_error"
+            }
+            _ => "provider_error",
+        };
+        let summary = match info.category {
+            OcrErrorCategory::Unauthorized | OcrErrorCategory::PermissionDenied => {
+                "Paddle Access Token 无效".to_string()
+            }
+            OcrErrorCategory::RemoteReadTimeout | OcrErrorCategory::ServiceUnavailable => {
+                "Paddle 连通性校验失败".to_string()
+            }
+            _ => "Paddle Access Token 校验失败".to_string(),
+        };
+        return MineruTokenValidationView {
+            ok: false,
+            status,
+            summary,
+            retryable: !matches!(
+                info.category,
+                OcrErrorCategory::Unauthorized | OcrErrorCategory::PermissionDenied
+            ),
+            provider_code: info.provider_code.clone(),
+            provider_message: info
+                .provider_message
+                .clone()
+                .or_else(|| Some(provider_err.to_string())),
+            operator_hint: info.operator_hint.clone(),
+            trace_id: info.trace_id.clone(),
+            base_url,
+            checked_at,
+        };
+    }
+
+    let error_text = err.to_string();
+    let lowered = error_text.to_lowercase();
+    let (status, summary, retryable) = if lowered.contains("timed out")
+        || lowered.contains("timeout")
+        || lowered.contains("failed to resolve")
+        || lowered.contains("dns")
+        || lowered.contains("connection")
+    {
+        ("network_error", "Paddle 连通性校验失败", true)
+    } else {
+        ("provider_error", "Paddle Access Token 校验失败", true)
+    };
+
+    MineruTokenValidationView {
+        ok: false,
+        status,
+        summary: summary.to_string(),
+        retryable,
+        provider_code: None,
+        provider_message: Some(error_text),
+        operator_hint: None,
+        trace_id: None,
+        base_url,
+        checked_at,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::classify_probe_error;
+    use super::{classify_paddle_probe_error, classify_probe_error};
+    use crate::ocr_provider::paddle::PaddleProviderError;
 
     #[test]
     fn classify_probe_error_maps_invalid_token() {
@@ -181,5 +313,41 @@ mod tests {
         assert!(!view.ok);
         assert_eq!(view.status, "network_error");
         assert!(view.retryable);
+    }
+
+    #[test]
+    fn classify_paddle_probe_error_maps_unauthorized() {
+        let err = anyhow::Error::new(PaddleProviderError::http_status(
+            "probe",
+            reqwest::StatusCode::UNAUTHORIZED,
+            r#"{"errorCode":401,"errorMsg":"unauthorized"}"#,
+            Some("trace-1"),
+            None,
+        ));
+        let view = classify_paddle_probe_error(
+            err,
+            "https://paddleocr.aistudio-app.com".to_string(),
+            "2026-04-26T00:00:00Z".to_string(),
+        );
+        assert!(!view.ok);
+        assert_eq!(view.status, "unauthorized");
+    }
+
+    #[test]
+    fn classify_paddle_probe_error_maps_not_found_as_valid() {
+        let err = anyhow::Error::new(PaddleProviderError::http_status(
+            "probe",
+            reqwest::StatusCode::NOT_FOUND,
+            r#"{"errorCode":404,"errorMsg":"not found"}"#,
+            Some("trace-2"),
+            None,
+        ));
+        let view = classify_paddle_probe_error(
+            err,
+            "https://paddleocr.aistudio-app.com".to_string(),
+            "2026-04-26T00:00:00Z".to_string(),
+        );
+        assert!(view.ok);
+        assert_eq!(view.status, "valid");
     }
 }
