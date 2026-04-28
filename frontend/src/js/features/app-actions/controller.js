@@ -1,6 +1,6 @@
 import { $ } from "../../dom.js";
 import { buildJobsEndpoint } from "../../network.js";
-import { getOcrProviderDefinition, normalizeOcrProvider } from "../../provider-config.js";
+import { getOcrProviderDefinition } from "../../provider-config.js";
 
 export function mountAppActionsFeature({
   state,
@@ -26,22 +26,6 @@ export function mountAppActionsFeature({
   getJobRuntimeFeature,
   onDesktopConfigSaved,
 }) {
-  function currentDesktopSetupProvider() {
-    return normalizeOcrProvider($("setup-ocr-provider")?.value || $("ocr_provider")?.value || "mineru");
-  }
-
-  function syncDesktopSetupProviderUi() {
-    const provider = currentDesktopSetupProvider();
-    const select = $("setup-ocr-provider");
-    if (!select) {
-      return;
-    }
-    select.value = provider;
-    document.querySelectorAll("[data-setup-provider-panel]").forEach((panel) => {
-      panel.hidden = panel.dataset.setupProviderPanel !== provider;
-    });
-  }
-
   function isMissingUploadError(error) {
     const message = `${error?.message || error || ""}`;
     return message.includes("upload not found");
@@ -140,38 +124,6 @@ export function mountAppActionsFeature({
     }
   }
 
-  async function handleDesktopSetupSave() {
-    const provider = currentDesktopSetupProvider();
-    const definition = getOcrProviderDefinition(provider);
-    const mineruToken = $("setup-mineru-token")?.value?.trim() || "";
-    const paddleToken = $("setup-paddle-token")?.value?.trim() || "";
-    const providerToken = definition.id === "paddle" ? paddleToken : mineruToken;
-    const modelApiKey = $("setup-model-api-key").value.trim();
-    if (!providerToken || !modelApiKey) {
-      setDesktopBusy(`请先填写 ${definition.tokenLabel} 和 DeepSeek Key。`);
-      return;
-    }
-    setDesktopBusy("正在保存配置并启动服务…");
-    try {
-      await saveDesktopConfig(
-        {
-          browserConfig: {
-            ocrProvider: provider,
-            mineruToken,
-            paddleToken,
-            modelApiKey,
-          },
-          markConfigured: true,
-        },
-        checkApiConnectivity,
-      );
-      onDesktopConfigSaved?.();
-      setDesktopBusy("");
-    } catch (err) {
-      setDesktopBusy(err.message || String(err));
-    }
-  }
-
   async function handleOpenOutputDir() {
     try {
       await openDesktopOutputDirectory();
@@ -180,12 +132,8 @@ export function mountAppActionsFeature({
     }
   }
 
-  $("setup-ocr-provider")?.addEventListener("change", syncDesktopSetupProviderUi);
-  syncDesktopSetupProviderUi();
-
   return {
     checkApiConnectivity,
-    handleDesktopSetupSave,
     handleOpenOutputDir,
     submitForm,
   };

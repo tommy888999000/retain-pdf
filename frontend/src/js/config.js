@@ -385,18 +385,6 @@ export function applyKeyInputs(credentialsOrMineruToken, legacyModelApiKey = "")
   $("mineru_token").value = mineruToken;
   $("paddle_token").value = paddleToken;
   $("api_key").value = modelApiKey;
-  if ($("setup-ocr-provider")) {
-    $("setup-ocr-provider").value = ocrProvider;
-  }
-  if ($("setup-mineru-token")) {
-    $("setup-mineru-token").value = mineruToken;
-  }
-  if ($("setup-paddle-token")) {
-    $("setup-paddle-token").value = paddleToken;
-  }
-  if ($("setup-model-api-key")) {
-    $("setup-model-api-key").value = modelApiKey;
-  }
 }
 
 export async function desktopInvoke(command, args = {}) {

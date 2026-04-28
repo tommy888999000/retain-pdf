@@ -12,6 +12,9 @@ export RUST_API_SCRIPTS_DIR="${RUST_API_SCRIPTS_DIR:-$PROJECT_ROOT/backend/scrip
 export RUST_API_DATA_ROOT
 export OUTPUT_ROOT
 export RUST_API_OUTPUT_ROOT="$OUTPUT_ROOT"
+if [ -d "${TYPST_PACKAGE_PATH:-}" ]; then
+  export TYPST_PACKAGE_PATH
+fi
 
 mkdir -p \
   "$RUST_API_DATA_ROOT" \

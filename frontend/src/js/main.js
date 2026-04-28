@@ -205,10 +205,6 @@ async function submitForm(event) {
   await appActionsFeature?.submitForm(event);
 }
 
-async function handleDesktopSetupSave() {
-  await appActionsFeature?.handleDesktopSetupSave();
-}
-
 async function handleOpenOutputDir() {
   await appActionsFeature?.handleOpenOutputDir();
 }
@@ -436,7 +432,6 @@ async function initializePage() {
     }
   });
   $("back-home-btn")?.addEventListener("click", () => jobRuntimeFeature?.returnToHome());
-  $("desktop-setup-save-btn")?.addEventListener("click", handleDesktopSetupSave);
   $("open-output-btn")?.addEventListener("click", handleOpenOutputDir);
   appShellFeature.initializeIdleView();
   mountRecentJobsFeature({

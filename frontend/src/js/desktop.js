@@ -12,7 +12,7 @@ export function showDesktopUi() {
 }
 
 export function setDesktopBusy(message = "") {
-  const targetIds = ["desktop-setup-error"];
+  const targetIds = ["browser-credentials-status"];
   for (const id of targetIds) {
     const el = $(id);
     if (!el) {
@@ -29,12 +29,15 @@ export function setDesktopBusy(message = "") {
 }
 
 export function openSetupDialog() {
-  $("desktop-setup-dialog").showModal();
+  document.dispatchEvent(new CustomEvent("retainpdf:open-browser-credentials", {
+    detail: { setupMode: true },
+  }));
 }
 
 export function closeSetupDialog() {
-  if ($("desktop-setup-dialog").open) {
-    $("desktop-setup-dialog").close();
+  const dialog = $("browser-credentials-dialog");
+  if (dialog?.open && dialog.dataset.setupMode === "1") {
+    dialog.close();
   }
 }
 

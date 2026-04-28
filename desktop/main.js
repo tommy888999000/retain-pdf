@@ -397,36 +397,8 @@ function resolvePythonRuntime(backendRoot) {
       return { command: candidate, bundledHome: bundledRoot };
     }
   }
-  if (process.platform === "darwin") {
-    const macCandidates = [
-      process.env.RETAIN_PDF_SYSTEM_PYTHON,
-      "/usr/bin/python3",
-      "/opt/homebrew/bin/python3",
-      "/usr/local/bin/python3",
-    ].filter(Boolean);
-    for (const candidate of macCandidates) {
-      if (fs.existsSync(candidate)) {
-        return { command: candidate, bundledHome: null };
-      }
-    }
-    return { command: "python3", bundledHome: null };
-  }
-  return { command: "python3", bundledHome: null };
-}
-
-function resolveSystemPythonRuntime() {
-  if (process.platform === "darwin") {
-    const macCandidates = [
-      process.env.RETAIN_PDF_SYSTEM_PYTHON,
-      "/usr/bin/python3",
-      "/opt/homebrew/bin/python3",
-      "/usr/local/bin/python3",
-    ].filter(Boolean);
-    for (const candidate of macCandidates) {
-      if (fs.existsSync(candidate)) {
-        return { command: candidate, bundledHome: null };
-      }
-    }
+  if (app.isPackaged) {
+    return { command: "", bundledHome: null };
   }
   return { command: "python3", bundledHome: null };
 }
@@ -456,7 +428,15 @@ function probePythonRuntime(runtime) {
     }
     const child = spawn(
       runtime.command,
-      ["-c", "import sys; print(sys.executable)"],
+      [
+        "-c",
+        [
+          "import sys",
+          "import requests, fitz, pikepdf, PIL, urllib3",
+          "print(sys.executable)",
+          "print('python_runtime_import_check=ok')",
+        ].join("; "),
+      ],
       {
         env,
         windowsHide: process.platform === "win32",
@@ -522,10 +502,13 @@ function bundledPythonSitePackages(bundledHome) {
 }
 
 function resolveTypstBinary(backendRoot) {
-  const candidates = process.platform === "win32"
+  const bundledCandidates = process.platform === "win32"
     ? [path.join(backendRoot, "typst", "bin", "typst.exe")]
+    : [path.join(backendRoot, "typst", "bin", "typst")];
+  const candidates = app.isPackaged
+    ? bundledCandidates
     : [
-        path.join(backendRoot, "typst", "bin", "typst"),
+        ...bundledCandidates,
         "/usr/local/bin/typst",
         "/opt/homebrew/bin/typst",
       ];
@@ -563,15 +546,26 @@ async function startBundledBackend() {
   if (!fs.existsSync(scriptsDir)) {
     throw new Error(`missing bundled scripts directory: ${scriptsDir}`);
   }
+  if (app.isPackaged && !typstBin) {
+    throw new Error(`missing bundled typst runtime under ${path.join(backendRoot, "typst")}`);
+  }
 
   if (process.platform === "darwin") {
     const bundledProbe = await probePythonRuntime(pythonRuntime);
     if (!bundledProbe.ok && pythonRuntime.bundledHome) {
+      if (app.isPackaged) {
+        throw new Error(
+          [
+            `packaged macOS bundled python probe failed: ${bundledProbe.reason}`,
+            bundledProbe.stderr || bundledProbe.stdout || "",
+          ].filter(Boolean).join("\n"),
+        );
+      }
       console.warn(
         `[desktop] bundled mac python probe failed, fallback to system python: ${bundledProbe.reason}\n${bundledProbe.stderr || ""}`.trim(),
       );
       updateSplashProgress(26, "正在检查 Python 运行时", "内置 Python 不可用，正在回退系统 Python");
-      const fallbackRuntime = resolveSystemPythonRuntime();
+      const fallbackRuntime = { command: "python3", bundledHome: null };
       const fallbackProbe = await probePythonRuntime(fallbackRuntime);
       if (fallbackProbe.ok) {
         pythonRuntime = fallbackRuntime;
@@ -581,6 +575,11 @@ async function startBundledBackend() {
         );
       }
     }
+  }
+  if (app.isPackaged && !pythonRuntime.bundledHome) {
+    throw new Error(
+      `missing bundled python runtime under ${path.join(backendRoot, "python")}`,
+    );
   }
 
   fs.mkdirSync(dataRoot, { recursive: true });

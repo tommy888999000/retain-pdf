@@ -33,12 +33,13 @@ class BrowserCredentialsDialog extends HTMLElement {
         <form method="dialog" class="desktop-shell">
           <div class="desktop-head">
             <div class="credential-dialog-head">
-              <h2>接口设置</h2>
+              <h2 id="browser-credentials-title">接口设置</h2>
+              <p id="browser-credentials-subtitle" class="muted hidden"></p>
             </div>
             <button id="browser-credentials-close-btn" type="submit" class="dialog-close-btn" aria-label="关闭">×</button>
           </div>
           <div class="desktop-body credential-dialog-body">
-            <div class="developer-tabs credential-tabs" role="tablist" aria-label="接口设置">
+            <div id="browser-credentials-tabs" class="developer-tabs credential-tabs" role="tablist" aria-label="接口设置">
               <button id="browser-credential-tab-api" type="button" class="developer-tab credential-tab is-active" data-credential-tab="api" role="tab" aria-selected="true">API 设置</button>
               <button id="browser-credential-tab-task" type="button" class="developer-tab credential-tab" data-credential-tab="task" role="tab" aria-selected="false">任务选项</button>
             </div>
@@ -105,6 +106,7 @@ class BrowserCredentialsDialog extends HTMLElement {
               </section>
             </div>
             <div class="actions credential-dialog-actions">
+              <span id="browser-credentials-status" class="upload-status hidden"></span>
               <button id="browser-credentials-save-btn" type="button">保存</button>
             </div>
           </div>

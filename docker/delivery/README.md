@@ -120,16 +120,18 @@ http://127.0.0.1:40001
   前端内部使用的 API 基地址。通常留空，让前端自动走同源代理。
 - `FRONT_X_API_KEY`
   前端自动附带给后端的 `X-API-Key`。必须和 `docker/auth.local.json` 中某个值一致。
+- `FRONT_OCR_PROVIDER`
+  前端默认 OCR provider。当前建议填 `paddle`，也可以切成 `mineru`。
+- `FRONT_PADDLE_TOKEN`
+  前端默认带出的 Paddle token。留空时，最终用户自己在页面弹窗里填写。
 - `FRONT_MINERU_TOKEN`
   前端默认带出的 MinerU token。留空时，最终用户自己在页面弹窗里填写。
 - `FRONT_MODEL_API_KEY`
   前端默认带出的模型 API key。留空时由最终用户自己填写。
 - `FRONT_MODEL`
-  前端默认模型名，例如 `deepseek-chat`。
+  前端默认模型名，例如 `deepseek-v4-flash`。
 - `FRONT_BASE_URL`
   前端默认模型服务地址，例如 `https://api.deepseek.com/v1`。
-- `FRONT_PROVIDER_PRESET`
-  前端默认 provider 预设。当前 Docker 公共版只保留 `deepseek`。
 
 ### docker/app.env
 
@@ -162,20 +164,20 @@ http://127.0.0.1:40001
 
 ## 说明
 
-- 宿主机默认只暴露 `40001`
-- 前端通过同源代理访问后端
-- 普通用户不需要理解 `API Base`
-- Docker 公共版前端当前只暴露 `DeepSeek` 这个 provider
-- 页面里提示的 `200MB / 600 页` 来自 MinerU 的上游限制，不能超过这个范围
-- 容器内仍然保留：
+- 当前 compose 默认暴露：
+  - `40001`：前端页面
   - `41000`：完整 Rust API
   - `42000`：简便同步接口
-  但默认不会直接映射到宿主机
+- 前端通过同源代理访问后端；普通用户通常不需要手工理解 `API Base`
+- 当前主线前端默认 OCR provider 是 `paddle`
+- 页面里显示的大小 / 页数限制来自当前后端运行配置，不应再按旧的 MinerU 固定上游限制理解
 
 ## 可选默认值
 
 如果你想让前端默认带出下游配置，可以继续填写：
 
+- `FRONT_OCR_PROVIDER`
+- `FRONT_PADDLE_TOKEN`
 - `FRONT_MINERU_TOKEN`
 - `FRONT_MODEL_API_KEY`
 - `FRONT_MODEL`
@@ -202,9 +204,11 @@ docker compose up -d
 ```bash
 export HOST="http://127.0.0.1:40001"
 export X_API_KEY="replace-with-your-backend-key"
+export OCR_PROVIDER="paddle"
+export PADDLE_TOKEN="your-paddle-token"
 export MINERU_TOKEN="your-mineru-token"
 export MODEL_API_KEY="your-model-api-key"
-export MODEL="deepseek-chat"
+export MODEL="deepseek-v4-flash"
 export BASE_URL="https://api.deepseek.com/v1"
 ```
 
@@ -237,21 +241,31 @@ curl -X POST "$HOST/api/v1/jobs" \
   -H "X-API-Key: $X_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow": "mineru",
-    "upload_id": "your-upload-id",
-    "mode": "sci",
-    "model": "'"$MODEL"'",
-    "base_url": "'"$BASE_URL"'",
-    "api_key": "'"$MODEL_API_KEY"'",
-    "mineru_token": "'"$MINERU_TOKEN"'",
-    "workers": 100,
-    "batch_size": 1,
-    "classify_batch_size": 12,
-    "render_mode": "auto",
-    "compile_workers": 8,
-    "model_version": "vlm",
-    "language": "ch",
-    "rule_profile_name": "general_sci"
+    "workflow": "book",
+    "source": {
+      "upload_id": "your-upload-id"
+    },
+    "ocr": {
+      "provider": "'"$OCR_PROVIDER"'",
+      "paddle_token": "'"$PADDLE_TOKEN"'",
+      "mineru_token": "'"$MINERU_TOKEN"'"
+    },
+    "translation": {
+      "api_key": "'"$MODEL_API_KEY"'",
+      "model": "'"$MODEL"'",
+      "base_url": "'"$BASE_URL"'",
+      "mode": "sci"
+    },
+    "render": {
+      "render_mode": "auto"
+    },
+    "runtime": {
+      "workers": 100,
+      "batch_size": 1,
+      "classify_batch_size": 12,
+      "compile_workers": 8,
+      "timeout_seconds": 1800
+    }
   }'
 ```
 
@@ -323,11 +337,14 @@ curl -X POST -H "X-API-Key: $X_API_KEY" \
 - 这个接口是由前端同源代理转发的
 - 默认路径是 `/api/v1/translate/bundle`
 - 请求会一直阻塞到任务完成，然后直接返回 ZIP
+- 这是兼容型同步入口；当前正式异步契约仍以 `/api/v1/uploads + /api/v1/jobs` 为主
 
 ```bash
 curl -X POST "$HOST/api/v1/translate/bundle" \
   -H "X-API-Key: $X_API_KEY" \
   -F "file=@/absolute/path/to/your.pdf" \
+  -F "provider=$OCR_PROVIDER" \
+  -F "paddle_token=$PADDLE_TOKEN" \
   -F "mineru_token=$MINERU_TOKEN" \
   -F "base_url=$BASE_URL" \
   -F "api_key=$MODEL_API_KEY" \
@@ -337,3 +354,8 @@ curl -X POST "$HOST/api/v1/translate/bundle" \
   -F "batch_size=1" \
   -o result.zip
 ```
+
+说明：
+
+- `provider` 建议显式传 `paddle` 或 `mineru`
+- `paddle_token` / `mineru_token` 只需要传当前 `provider` 对应的那个

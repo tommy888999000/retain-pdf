@@ -26,6 +26,44 @@ export function mountBrowserCredentialsFeature({
     return $("browser-credentials-dialog");
   }
 
+  function currentCredentialDialogSetupMode() {
+    return credentialDialog()?.dataset?.setupMode === "1";
+  }
+
+  function setCredentialDialogMode(setupMode = false) {
+    const dialog = credentialDialog();
+    if (!dialog) {
+      return;
+    }
+    dialog.dataset.setupMode = setupMode ? "1" : "0";
+    $("browser-credentials-title").textContent = setupMode ? "首次配置" : "接口设置";
+    const subtitle = $("browser-credentials-subtitle");
+    if (subtitle) {
+      const text = setupMode
+        ? "请先填写 OCR Provider 凭证和 DeepSeek Key。完成后桌面端会直接启动本地服务。"
+        : "";
+      subtitle.textContent = text;
+      subtitle.classList.toggle("hidden", !text);
+    }
+    $("browser-credentials-save-btn").textContent = setupMode ? "保存并启动" : "保存";
+    $("browser-credentials-tabs")?.classList.toggle("hidden", setupMode);
+    if (setupMode) {
+      activateCredentialTab("api");
+    }
+  }
+
+  function setDialogStatus(message = "", tone = "") {
+    const el = $("browser-credentials-status");
+    if (!el) {
+      return;
+    }
+    const content = `${message || ""}`.trim();
+    el.textContent = content;
+    el.classList.toggle("hidden", !content);
+    el.classList.toggle("is-valid", tone === "valid");
+    el.classList.toggle("is-error", tone === "error");
+  }
+
   function activateCredentialTab(tabName = "api") {
     const dialog = credentialDialog();
     if (!dialog) {
@@ -217,6 +255,7 @@ export function mountBrowserCredentialsFeature({
     setOcrValidationMessage("", "", "mineru");
     setOcrValidationMessage("", "", "paddle");
     setDeepSeekValidationMessage("", "");
+    setDialogStatus("", "");
   }
 
   function persistBrowserCredentialsFromDialog() {
@@ -259,6 +298,7 @@ export function mountBrowserCredentialsFeature({
       {
         ocrProvider: provider,
         paddleToken,
+        markConfigured: currentCredentialDialogSetupMode(),
       },
     );
     saveTaskOptions?.({
@@ -272,12 +312,13 @@ export function mountBrowserCredentialsFeature({
     return Boolean(($(`${definition.tokenField}`)?.value || "").trim() && ($("api_key").value || "").trim());
   }
 
-  function openBrowserCredentialsDialog() {
+  function openBrowserCredentialsDialog(options = {}) {
     const { dialog } = browserCredentialElements();
     if (!dialog) {
       return;
     }
     syncBrowserDialogFromHiddenInputs();
+    setCredentialDialogMode(!!options.setupMode);
     activateCredentialTab("api");
     dialog.showModal();
   }
@@ -390,10 +431,12 @@ export function mountBrowserCredentialsFeature({
         persistBrowserCredentialsFromDialog();
       }
     } catch (error) {
+      setDialogStatus(error?.message || String(error), "error");
       setDeepSeekValidationMessage(error?.message || String(error), "error");
       return;
     }
     onCredentialStateChange?.();
+    setDialogStatus("", "");
     $("browser-credentials-dialog")?.close();
   }
 
@@ -413,6 +456,9 @@ export function mountBrowserCredentialsFeature({
   $("browser-deepseek-validate-btn")?.addEventListener("click", handleBrowserDeepSeekValidate);
   $("browser-credentials-save-btn")?.addEventListener("click", handleBrowserCredentialSave);
   $("credentials-btn")?.addEventListener("click", openBrowserCredentialsDialog);
+  document.addEventListener("retainpdf:open-browser-credentials", (event) => {
+    openBrowserCredentialsDialog(event?.detail || {});
+  });
   credentialDialog()?.querySelectorAll("[data-credential-tab]").forEach((tab) => {
     tab.addEventListener("click", () => {
       activateCredentialTab(tab.dataset.credentialTab || "api");
@@ -434,6 +480,7 @@ export function mountBrowserCredentialsFeature({
     ensureOcrCredentialsReady,
     hasBrowserCredentials,
     openBrowserCredentialsDialog,
+    setDialogStatus,
     updateCredentialGate,
   };
 }
