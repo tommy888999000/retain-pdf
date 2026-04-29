@@ -12,10 +12,10 @@ RUN npm run build && \
 FROM nginx:1.27-alpine
 
 RUN apk add --no-cache bash gettext
-RUN sed -i 's/application\/javascript[[:space:]]\+js;/application\/javascript                           js mjs;/' /etc/nginx/mime.types
 
 COPY --from=frontend-builder /app/frontend/ /usr/share/nginx/html/
 COPY docker/nginx.conf.template /etc/nginx/templates/default.conf.template
+COPY docker/nginx-mjs.types.conf /etc/nginx/conf.d/mjs.types.conf
 COPY docker/entrypoint-web.sh /docker-entrypoint.d/99-runtime-config.sh
 
 RUN rm -rf \
