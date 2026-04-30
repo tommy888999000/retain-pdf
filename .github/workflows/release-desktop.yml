@@ -496,7 +496,8 @@ jobs:
           framework_version="$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
           framework_root="$framework_prefix/$framework_python.framework"
           framework_version_root="$framework_root/Versions/$framework_version"
-          framework_bundle_root="$bundle_root/Frameworks/$framework_python.framework/Versions/$framework_version"
+          framework_bundle_framework_root="$bundle_root/Frameworks/$framework_python.framework"
+          framework_bundle_root="$framework_bundle_framework_root/Versions/$framework_version"
           framework_binary_name="$framework_python"
           bundle_python3="$bundle_root/bin/python3"
           bundle_python="$bundle_root/bin/python"
@@ -507,11 +508,10 @@ jobs:
             echo "Missing Python.framework runtime at $framework_version_root" >&2
             exit 1
           fi
-          mkdir -p "$framework_bundle_root"
+          mkdir -p "$bundle_root/Frameworks"
           rsync -a \
             --exclude '__pycache__' \
-            --exclude 'Resources' \
-            "$framework_version_root/" "$framework_bundle_root/"
+            "$framework_root/" "$framework_bundle_framework_root/"
           install_name_tool \
             -change "$framework_version_root/$framework_binary_name" \
             "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
@@ -525,6 +525,11 @@ jobs:
           install_name_tool \
             -id "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
             "$framework_bundle_root/$framework_binary_name"
+          codesign --force --sign - "$framework_bundle_root/$framework_binary_name"
+          codesign --force --sign - "$bundle_python3"
+          if [ -e "$bundle_python" ]; then
+            codesign --force --sign - "$bundle_python"
+          fi
           export CPPFLAGS="-I$qpdf_prefix/include ${CPPFLAGS:-}"
           export LDFLAGS="-L$qpdf_prefix/lib ${LDFLAGS:-}"
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -576,6 +581,21 @@ jobs:
           RETAIN_PDF_BUNDLE_MAC_PYTHON: "1"
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist:mac
+
+      - name: Probe packaged macOS bundled Python
+        shell: bash
+        run: |
+          app_root="$PWD/desktop/mac/RetainPDF.app"
+          python_bin="$app_root/Contents/Resources/backend/python/bin/python3"
+          if [ ! -x "$python_bin" ]; then
+            echo "Packaged Python binary not found: $python_bin" >&2
+            exit 1
+          fi
+          otool -L "$python_bin"
+          "$python_bin" - <<'PY'
+          import requests, fitz, pikepdf, PIL, urllib3
+          print("packaged_python_import_check=ok")
+          PY
 
       - name: Show desktop bundle manifest
         shell: bash

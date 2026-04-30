@@ -410,7 +410,32 @@ function shouldSetBundledPythonHome(bundledHome) {
   return !fs.existsSync(path.join(bundledHome, "pyvenv.cfg"));
 }
 
-function probePythonRuntime(runtime) {
+function buildPythonProbeScript(includeDependencyImports) {
+  if (!includeDependencyImports) {
+    return [
+      "import sys",
+      "print(sys.executable, flush=True)",
+      "print('python_runtime_startup_check=ok', flush=True)",
+    ].join("\n");
+  }
+
+  return [
+    "import importlib",
+    "import sys",
+    "print(sys.executable, flush=True)",
+    "for module_name in ['requests', 'fitz', 'pikepdf', 'PIL', 'urllib3']:",
+    "    print(f'importing:{module_name}', flush=True)",
+    "    importlib.import_module(module_name)",
+    "    print(f'imported:{module_name}', flush=True)",
+    "print('python_runtime_import_check=ok', flush=True)",
+  ].join("\n");
+}
+
+function probePythonRuntime(runtime, options = {}) {
+  const {
+    timeoutMs = 8000,
+    includeDependencyImports = true,
+  } = options;
   return new Promise((resolve) => {
     if (!runtime || !runtime.command) {
       resolve({ ok: false, reason: "missing_python_command" });
@@ -430,12 +455,7 @@ function probePythonRuntime(runtime) {
       runtime.command,
       [
         "-c",
-        [
-          "import sys",
-          "import requests, fitz, pikepdf, PIL, urllib3",
-          "print(sys.executable)",
-          "print('python_runtime_import_check=ok')",
-        ].join("; "),
+        buildPythonProbeScript(includeDependencyImports),
       ],
       {
         env,
@@ -445,9 +465,11 @@ function probePythonRuntime(runtime) {
     );
     let stdout = "";
     let stderr = "";
+    let timedOut = false;
     const timer = setTimeout(() => {
+      timedOut = true;
       child.kill("SIGKILL");
-    }, 8000);
+    }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
     });
@@ -456,7 +478,13 @@ function probePythonRuntime(runtime) {
     });
     child.once("error", (error) => {
       clearTimeout(timer);
-      resolve({ ok: false, reason: String(error && error.message ? error.message : error), stdout, stderr });
+      resolve({
+        ok: false,
+        timedOut,
+        reason: String(error && error.message ? error.message : error),
+        stdout,
+        stderr,
+      });
     });
     child.once("exit", (code, signal) => {
       clearTimeout(timer);
@@ -466,7 +494,10 @@ function probePythonRuntime(runtime) {
       }
       resolve({
         ok: false,
-        reason: `exit_code=${code ?? "null"} signal=${signal ?? "null"}`,
+        timedOut,
+        reason: timedOut
+          ? `timeout_after_ms=${timeoutMs} exit_code=${code ?? "null"} signal=${signal ?? "null"}`
+          : `exit_code=${code ?? "null"} signal=${signal ?? "null"}`,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
       });
@@ -551,27 +582,73 @@ async function startBundledBackend() {
   }
 
   if (process.platform === "darwin") {
-    const bundledProbe = await probePythonRuntime(pythonRuntime);
-    if (!bundledProbe.ok && pythonRuntime.bundledHome) {
+    const startupProbe = await probePythonRuntime(pythonRuntime, {
+      timeoutMs: app.isPackaged ? 10000 : 8000,
+      includeDependencyImports: false,
+    });
+    if (!startupProbe.ok && pythonRuntime.bundledHome) {
       if (app.isPackaged) {
         throw new Error(
           [
-            `packaged macOS bundled python probe failed: ${bundledProbe.reason}`,
-            bundledProbe.stderr || bundledProbe.stdout || "",
+            `packaged macOS bundled python startup probe failed: ${startupProbe.reason}`,
+            startupProbe.stderr || startupProbe.stdout || "",
           ].filter(Boolean).join("\n"),
         );
       }
       console.warn(
-        `[desktop] bundled mac python probe failed, fallback to system python: ${bundledProbe.reason}\n${bundledProbe.stderr || ""}`.trim(),
+        `[desktop] bundled mac python startup probe failed, fallback to system python: ${startupProbe.reason}\n${startupProbe.stderr || ""}`.trim(),
       );
       updateSplashProgress(26, "正在检查 Python 运行时", "内置 Python 不可用，正在回退系统 Python");
       const fallbackRuntime = { command: "python3", bundledHome: null };
-      const fallbackProbe = await probePythonRuntime(fallbackRuntime);
+      const fallbackProbe = await probePythonRuntime(fallbackRuntime, {
+        timeoutMs: 10000,
+        includeDependencyImports: false,
+      });
       if (fallbackProbe.ok) {
         pythonRuntime = fallbackRuntime;
       } else {
         throw new Error(
-          `macOS Python runtime probe failed; bundled=${bundledProbe.reason}; fallback=${fallbackProbe.reason}`,
+          `macOS Python runtime startup probe failed; bundled=${startupProbe.reason}; fallback=${fallbackProbe.reason}`,
+        );
+      }
+    }
+
+    const dependencyProbe = await probePythonRuntime(pythonRuntime, {
+      timeoutMs: app.isPackaged ? 30000 : 8000,
+      includeDependencyImports: true,
+    });
+    if (!dependencyProbe.ok) {
+      if (app.isPackaged && pythonRuntime.bundledHome && dependencyProbe.timedOut) {
+        console.warn(
+          [
+            `[desktop] packaged mac python dependency probe timed out; continuing to backend startup: ${dependencyProbe.reason}`,
+            dependencyProbe.stderr || dependencyProbe.stdout || "",
+          ].filter(Boolean).join("\n"),
+        );
+        updateSplashProgress(26, "正在检查 Python 运行时", "内置 Python 启动较慢，继续启动本地服务");
+      } else if (pythonRuntime.bundledHome && !app.isPackaged) {
+        console.warn(
+          `[desktop] bundled mac python dependency probe failed, fallback to system python: ${dependencyProbe.reason}\n${dependencyProbe.stderr || ""}`.trim(),
+        );
+        updateSplashProgress(26, "正在检查 Python 运行时", "内置 Python 不可用，正在回退系统 Python");
+        const fallbackRuntime = { command: "python3", bundledHome: null };
+        const fallbackProbe = await probePythonRuntime(fallbackRuntime, {
+          timeoutMs: 10000,
+          includeDependencyImports: true,
+        });
+        if (fallbackProbe.ok) {
+          pythonRuntime = fallbackRuntime;
+        } else {
+          throw new Error(
+            `macOS Python runtime import probe failed; bundled=${dependencyProbe.reason}; fallback=${fallbackProbe.reason}`,
+          );
+        }
+      } else {
+        throw new Error(
+          [
+            `packaged macOS bundled python probe failed: ${dependencyProbe.reason}`,
+            dependencyProbe.stderr || dependencyProbe.stdout || "",
+          ].filter(Boolean).join("\n"),
         );
       }
     }
@@ -677,7 +754,8 @@ async function startBundledBackend() {
       "首次启动可能稍慢，请稍候",
     );
   }, 500);
-  await waitForPort("127.0.0.1", apiPort, 30000);
+  const backendReadyTimeoutMs = process.platform === "darwin" && app.isPackaged ? 60000 : 30000;
+  await waitForPort("127.0.0.1", apiPort, backendReadyTimeoutMs);
   clearInterval(waitingTimer);
   updateSplashProgress(92, "本地服务已就绪", "正在加载主界面");
 }
