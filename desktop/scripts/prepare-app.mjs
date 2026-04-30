@@ -165,15 +165,86 @@ function pruneBundledMacPythonRuntime(root) {
   if (!fs.existsSync(root)) {
     return;
   }
+  const frameworkVersionsRoot = path.join(root, "Frameworks", "Python.framework", "Versions");
+  const currentVersionLink = path.join(frameworkVersionsRoot, "Current");
+  let currentFrameworkVersion = "";
+  if (fs.existsSync(currentVersionLink)) {
+    try {
+      currentFrameworkVersion = path.basename(fs.readlinkSync(currentVersionLink));
+    } catch {
+      currentFrameworkVersion = "";
+    }
+  }
+  const libRoot = path.join(root, "lib");
+  const pythonLibDir = fs.existsSync(libRoot)
+    ? fs.readdirSync(libRoot).find((entry) => /^python\d+\.\d+$/.test(entry))
+    : null;
   const removalTargets = [
     path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Frameworks", "Tk.framework"),
     path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Frameworks", "Tcl.framework"),
     path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Headers"),
     path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "share", "doc"),
   ];
+  if (pythonLibDir) {
+    const sitePackagesRoot = path.join(libRoot, pythonLibDir, "site-packages");
+    removalTargets.push(
+      path.join(libRoot, pythonLibDir, "ensurepip"),
+      path.join(sitePackagesRoot, "pip"),
+      path.join(sitePackagesRoot, "setuptools"),
+      path.join(sitePackagesRoot, "pkg_resources"),
+    );
+    if (fs.existsSync(sitePackagesRoot)) {
+      for (const entry of fs.readdirSync(sitePackagesRoot)) {
+        if (/^(pip|setuptools)-.+\.dist-info$/.test(entry)) {
+          removalTargets.push(path.join(sitePackagesRoot, entry));
+        }
+      }
+    }
+  }
   for (const target of removalTargets) {
     fs.rmSync(target, { recursive: true, force: true });
   }
+
+  const removableFiles = [
+    path.join(root, "bin", "2to3"),
+    path.join(root, "bin", "idle3"),
+    path.join(root, "bin", "pydoc3"),
+    path.join(root, "bin", "python3-config"),
+  ];
+  for (const target of removableFiles) {
+    fs.rmSync(target, { force: true });
+  }
+
+  if (fs.existsSync(frameworkVersionsRoot)) {
+    for (const entry of fs.readdirSync(frameworkVersionsRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      if (entry.name === "Current" || entry.name === currentFrameworkVersion) {
+        continue;
+      }
+      fs.rmSync(path.join(frameworkVersionsRoot, entry.name), { recursive: true, force: true });
+    }
+  }
+
+  function pruneTree(currentPath) {
+    if (!fs.existsSync(currentPath)) {
+      return;
+    }
+    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "__pycache__" || entry.name === "test" || entry.name === "tests") {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+          continue;
+        }
+        pruneTree(entryPath);
+      }
+    }
+  }
+
+  pruneTree(root);
 }
 
 const embeddedPythonRoot = resolveRuntimeCandidate("python");
