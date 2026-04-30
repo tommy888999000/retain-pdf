@@ -585,7 +585,12 @@ jobs:
       - name: Probe packaged macOS bundled Python
         shell: bash
         run: |
-          app_root="$PWD/desktop/mac/RetainPDF.app"
+          app_root="$(find "$PWD/desktop" -maxdepth 3 -type d -name 'RetainPDF.app' | head -n 1)"
+          if [ -z "$app_root" ]; then
+            echo "Packaged RetainPDF.app not found under $PWD/desktop" >&2
+            find "$PWD/desktop" -maxdepth 3 -type d | sort
+            exit 1
+          fi
           python_bin="$app_root/Contents/Resources/backend/python/bin/python3"
           if [ ! -x "$python_bin" ]; then
             echo "Packaged Python binary not found: $python_bin" >&2
