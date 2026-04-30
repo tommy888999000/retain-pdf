@@ -123,6 +123,44 @@ function copyRuntimeTree(from, to, options = {}) {
   });
 }
 
+function rewriteAbsoluteSymlinksWithinRoot(root, sourceRoot) {
+  if (!fs.existsSync(root) || !fs.existsSync(sourceRoot)) {
+    return;
+  }
+  const normalizedRoot = path.resolve(root);
+  const normalizedSourceRoot = path.resolve(sourceRoot);
+
+  function visit(currentPath) {
+    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(currentPath, entry.name);
+      const stats = fs.lstatSync(entryPath);
+      if (stats.isSymbolicLink()) {
+        const target = fs.readlinkSync(entryPath);
+        if (!path.isAbsolute(target)) {
+          continue;
+        }
+        const normalizedTarget = path.normalize(target);
+        if (!normalizedTarget.startsWith(normalizedSourceRoot + path.sep)
+          && normalizedTarget !== normalizedSourceRoot) {
+          continue;
+        }
+        const suffix = path.relative(normalizedSourceRoot, normalizedTarget);
+        const replacementTarget = path.join(normalizedRoot, suffix);
+        const relativeTarget = path.relative(path.dirname(entryPath), replacementTarget) || ".";
+        fs.unlinkSync(entryPath);
+        fs.symlinkSync(relativeTarget, entryPath);
+        continue;
+      }
+      if (stats.isDirectory()) {
+        visit(entryPath);
+      }
+    }
+  }
+
+  visit(normalizedRoot);
+}
+
 const embeddedPythonRoot = resolveRuntimeCandidate("python");
 const bundledTypstRoot = resolveRuntimeCandidate("typst");
 const typstPackagesRoot = resolveSharedRuntimePath("typst-packages");
@@ -513,10 +551,9 @@ if (!frontendOnly && targetPlatform === "linux" && hasBundledPosixPython(embedde
 
 if (!frontendOnly && targetPlatform === "darwin" && hasBundledPosixPython(embeddedPythonRoot)) {
   if (allowBundledMacPython) {
-    copyRuntimeTree(embeddedPythonRoot, path.join(outputBackendRoot, "python"), {
-      // macOS bundled Python.framework may still contain symlinks; copy real files into app resources.
-      dereference: true,
-    });
+    const targetPythonRoot = path.join(outputBackendRoot, "python");
+    copyRuntimeTree(embeddedPythonRoot, targetPythonRoot);
+    rewriteAbsoluteSymlinksWithinRoot(targetPythonRoot, embeddedPythonRoot);
   } else {
     console.warn(
       "[prepare-app] skip bundling backend/python for darwin because RETAIN_PDF_BUNDLE_MAC_PYTHON!=1",
