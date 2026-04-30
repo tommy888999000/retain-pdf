@@ -10,11 +10,8 @@ const repoRoot = path.resolve(desktopRoot, "..");
 const versionFile = path.join(repoRoot, "VERSION");
 const frontendRoot = path.join(repoRoot, "frontend");
 const backendRoot = path.join(repoRoot, "backend");
-const embeddedPythonRoot = path.join(backendRoot, "python");
-const typstWindowsRoot = path.join(backendRoot, "typst-win32");
-const typstDarwinRoot = path.join(backendRoot, "typst-darwin");
-const typstLinuxRoot = path.join(backendRoot, "typst-linux");
-const typstPackagesRoot = path.join(backendRoot, "typst-packages");
+const desktopSrcRoot = path.join(desktopRoot, "src");
+const desktopRuntimeRoot = path.join(desktopSrcRoot, "runtime");
 const targetPlatform = process.env.RETAIN_PDF_DESKTOP_PLATFORM || process.platform;
 const allowBundledMacPython = process.env.RETAIN_PDF_BUNDLE_MAC_PYTHON === "1";
 const skipBundledRuntimeVerification = process.env.RETAIN_PDF_SKIP_BUNDLED_RUNTIME_VERIFICATION === "1";
@@ -24,20 +21,129 @@ const outputFrontendRoot = path.join(appRoot, "frontend");
 const outputBackendRoot = path.join(appRoot, "backend");
 const outputFrontendVendorRoot = path.join(outputFrontendRoot, "vendor");
 const bundledFontsRoot = path.join(outputBackendRoot, "fonts");
-const bundledFontAssetsRoot = path.join(desktopRoot, "assets", "fonts");
 const buildRoot = path.join(desktopRoot, "build");
 const linuxIconsRoot = path.join(buildRoot, "icons");
 const desktopIconSource = path.join(desktopRoot, "assets", "RetainPDF-logo.png");
 const desktopPackagePath = path.join(desktopRoot, "package.json");
 const desktopPackage = JSON.parse(fs.readFileSync(desktopPackagePath, "utf8"));
 
-const releaseVersion = fs.existsSync(versionFile)
-  ? fs.readFileSync(versionFile, "utf8").trim()
-  : (process.env.RETAIN_PDF_VERSION || desktopPackage.version || "").trim();
+function normalizeTargetPlatformName(platform = targetPlatform) {
+  if (platform === "darwin" || platform === "mac") {
+    return "mac";
+  }
+  if (platform === "win32" || platform === "windows") {
+    return "windows";
+  }
+  if (platform === "linux") {
+    return "linux";
+  }
+  throw new Error(`unsupported desktop target platform: ${platform}`);
+}
+
+const targetPlatformName = normalizeTargetPlatformName();
+
+function resolvePlatformRuntimeDir(platformName = targetPlatformName) {
+  return path.join(desktopRuntimeRoot, platformName);
+}
+
+function resolveRuntimeCandidate(relativePath) {
+  const platformRoot = resolvePlatformRuntimeDir();
+  const desktopCandidate = path.join(platformRoot, relativePath);
+  if (fs.existsSync(desktopCandidate)) {
+    return desktopCandidate;
+  }
+
+  if (targetPlatformName === "mac" && relativePath === "python" && allowBundledMacPython) {
+    return desktopCandidate;
+  }
+
+  const legacyCandidates = {
+    "python": path.join(backendRoot, "python"),
+    "typst": {
+      win32: path.join(backendRoot, "typst-win32"),
+      darwin: path.join(backendRoot, "typst-darwin"),
+      linux: path.join(backendRoot, "typst-linux"),
+    }[targetPlatform],
+  };
+
+  const legacyCandidate = legacyCandidates[relativePath];
+  return legacyCandidate && fs.existsSync(legacyCandidate) ? legacyCandidate : desktopCandidate;
+}
+
+function resolveSharedRuntimePath(relativePath) {
+  const desktopCandidate = path.join(desktopRuntimeRoot, "shared", relativePath);
+  if (fs.existsSync(desktopCandidate)) {
+    return desktopCandidate;
+  }
+  const legacyCandidates = {
+    "typst-packages": path.join(backendRoot, "typst-packages"),
+    "fonts": [
+      path.join(backendRoot, "fonts"),
+      path.join(desktopRoot, "assets", "fonts"),
+    ],
+  };
+  const legacyCandidate = legacyCandidates[relativePath];
+  if (Array.isArray(legacyCandidate)) {
+    const match = legacyCandidate.find((candidate) => fs.existsSync(candidate));
+    return match || desktopCandidate;
+  }
+  return legacyCandidate && fs.existsSync(legacyCandidate) ? legacyCandidate : desktopCandidate;
+}
+
+function resolveSharedRuntimePaths(relativePath) {
+  const candidates = [];
+  const desktopCandidate = path.join(desktopRuntimeRoot, "shared", relativePath);
+  if (fs.existsSync(desktopCandidate)) {
+    candidates.push(desktopCandidate);
+  }
+  if (relativePath === "fonts") {
+    for (const candidate of [
+      path.join(backendRoot, "fonts"),
+      path.join(desktopRoot, "assets", "fonts"),
+    ]) {
+      if (fs.existsSync(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+  } else {
+    const legacyCandidate = resolveSharedRuntimePath(relativePath);
+    if (legacyCandidate !== desktopCandidate && fs.existsSync(legacyCandidate)) {
+      candidates.push(legacyCandidate);
+    }
+  }
+  return [...new Set(candidates)];
+}
+
+const embeddedPythonRoot = resolveRuntimeCandidate("python");
+const bundledTypstRoot = resolveRuntimeCandidate("typst");
+const typstPackagesRoot = resolveSharedRuntimePath("typst-packages");
+
+function resolveGitVersion() {
+  const exactTag = spawnSync("git", ["describe", "--tags", "--exact-match", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (exactTag.status === 0) {
+    return exactTag.stdout.trim();
+  }
+  const described = spawnSync("git", ["describe", "--tags", "--always", "--dirty"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  if (described.status === 0) {
+    return described.stdout.trim();
+  }
+  return "";
+}
+
+const releaseVersion = (process.env.RETAIN_PDF_VERSION || "").trim()
+  || resolveGitVersion()
+  || (fs.existsSync(versionFile) ? fs.readFileSync(versionFile, "utf8").trim() : "")
+  || (desktopPackage.version || "").trim();
 
 if (!releaseVersion) {
   throw new Error(
-    `Missing release version in ${versionFile}; fallback sources RETAIN_PDF_VERSION/package.json are also empty`,
+    `Missing release version; fallback sources RETAIN_PDF_VERSION, git describe, ${versionFile}, and package.json are all empty`,
   );
 }
 
@@ -423,6 +529,11 @@ const bundledPythonRequired = targetPlatform === "win32"
   || targetPlatform === "linux"
   || (targetPlatform === "darwin" && allowBundledMacPython);
 let bundledPythonDiagnostics = null;
+if (!frontendOnly && targetPlatform === "darwin" && allowBundledMacPython && !hasBundledPosixPython(embeddedPythonRoot)) {
+  throw new Error(
+    `Bundled macOS Python runtime is missing. Expected ${path.join(resolvePlatformRuntimeDir("mac"), "python")} to contain bin/python3.`,
+  );
+}
 if (!frontendOnly && bundledPythonRequired && !pythonBundled) {
   throw new Error(`Bundled Python runtime is required for ${targetPlatform} packaging but was not copied to ${outputPythonRoot}`);
 }
@@ -430,22 +541,8 @@ if (!frontendOnly && pythonBundled && !skipBundledRuntimeVerification) {
   bundledPythonDiagnostics = verifyBundledPythonRuntime(outputPythonRoot);
 }
 
-if (!frontendOnly && targetPlatform === "win32" && fs.existsSync(typstWindowsRoot)) {
-  fs.cpSync(typstWindowsRoot, path.join(outputBackendRoot, "typst"), {
-    recursive: true,
-    force: true,
-  });
-}
-
-if (!frontendOnly && targetPlatform === "darwin" && fs.existsSync(typstDarwinRoot)) {
-  fs.cpSync(typstDarwinRoot, path.join(outputBackendRoot, "typst"), {
-    recursive: true,
-    force: true,
-  });
-}
-
-if (!frontendOnly && targetPlatform === "linux" && fs.existsSync(typstLinuxRoot)) {
-  fs.cpSync(typstLinuxRoot, path.join(outputBackendRoot, "typst"), {
+if (!frontendOnly && fs.existsSync(bundledTypstRoot)) {
+  fs.cpSync(bundledTypstRoot, path.join(outputBackendRoot, "typst"), {
     recursive: true,
     force: true,
   });
@@ -458,12 +555,14 @@ if (!frontendOnly && fs.existsSync(typstPackagesRoot)) {
   });
 }
 
-if (!frontendOnly && fs.existsSync(bundledFontAssetsRoot)) {
-  for (const entry of fs.readdirSync(bundledFontAssetsRoot)) {
-    const from = path.join(bundledFontAssetsRoot, entry);
-    const to = path.join(bundledFontsRoot, entry);
-    if (fs.statSync(from).isFile()) {
-      fs.cpSync(from, to, { force: true });
+if (!frontendOnly) {
+  for (const fontAssetsRoot of resolveSharedRuntimePaths("fonts")) {
+    for (const entry of fs.readdirSync(fontAssetsRoot)) {
+      const from = path.join(fontAssetsRoot, entry);
+      const to = path.join(bundledFontsRoot, entry);
+      if (fs.statSync(from).isFile()) {
+        fs.cpSync(from, to, { force: true });
+      }
     }
   }
 }
@@ -486,6 +585,7 @@ const manifest = {
   generatedAt: new Date().toISOString(),
   version: releaseVersion,
   targetPlatform,
+  targetPlatformName,
   rustApiBinaryBundled: fs.existsSync(path.join(outputBackendRoot, "bin", rustApiBinary.fileName)),
   rustApiBinaryName: rustApiBinary.fileName,
   pythonBundled,

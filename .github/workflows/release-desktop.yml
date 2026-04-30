@@ -83,7 +83,7 @@ jobs:
           $typstUrl = "https://github.com/typst/typst/releases/download/v$typstVersion/typst-x86_64-pc-windows-msvc.zip"
           $downloadZip = Join-Path $env:RUNNER_TEMP "typst-windows.zip"
           $extractRoot = Join-Path $env:RUNNER_TEMP "typst-windows"
-          $bundleRoot = Join-Path $PWD "backend/typst-win32"
+          $bundleRoot = Join-Path $PWD "desktop/src/runtime/windows/typst"
           Write-Host "Downloading Typst $typstVersion from $typstUrl"
           Invoke-WebRequest -Uri $typstUrl -OutFile $downloadZip
           if (Test-Path $extractRoot) {
@@ -104,13 +104,13 @@ jobs:
       - name: Assemble bundled Typst packages
         shell: pwsh
         run: |
-          $bundleRoot = Join-Path $PWD "backend/typst-packages/preview"
+          $bundleRoot = Join-Path $PWD "desktop/src/runtime/shared/typst-packages/preview"
           $packages = @(
             @{ Name = "cmarker"; Version = "${{ env.CMARKER_VERSION }}" },
             @{ Name = "mitex"; Version = "${{ env.MITEX_VERSION }}" }
           )
-          if (Test-Path (Join-Path $PWD "backend/typst-packages")) {
-            Remove-Item (Join-Path $PWD "backend/typst-packages") -Recurse -Force
+          if (Test-Path (Join-Path $PWD "desktop/src/runtime/shared/typst-packages")) {
+            Remove-Item (Join-Path $PWD "desktop/src/runtime/shared/typst-packages") -Recurse -Force
           }
           foreach ($pkg in $packages) {
             $url = "https://packages.typst.org/preview/$($pkg.Name)-$($pkg.Version).tar.gz"
@@ -126,14 +126,14 @@ jobs:
             New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
             Copy-Item (Join-Path $extractRoot "*") $targetDir -Recurse -Force
           }
-          Get-ChildItem (Join-Path $PWD "backend/typst-packages") -Recurse | Select-Object FullName, Length
+          Get-ChildItem (Join-Path $PWD "desktop/src/runtime/shared/typst-packages") -Recurse | Select-Object FullName, Length
 
       - name: Assemble bundled Python runtime
         shell: pwsh
         run: |
           $pythonExe = (Get-Command python).Source
           $pythonRoot = Split-Path -Parent $pythonExe
-          $bundleRoot = Join-Path $PWD "backend/python"
+          $bundleRoot = Join-Path $PWD "desktop/src/runtime/windows/python"
           Write-Host "Using Python executable: $pythonExe"
           Write-Host "Python runtime root: $pythonRoot"
           if (Test-Path $bundleRoot) {
@@ -263,7 +263,7 @@ jobs:
           typst_url="https://github.com/typst/typst/releases/download/v${typst_version}/typst-x86_64-unknown-linux-musl.tar.xz"
           download_tar="$RUNNER_TEMP/typst-linux.tar.xz"
           extract_root="$RUNNER_TEMP/typst-linux"
-          bundle_root="$PWD/backend/typst-linux"
+          bundle_root="$PWD/desktop/src/runtime/linux/typst"
           echo "Downloading Typst $typst_version from $typst_url"
           curl -L "$typst_url" -o "$download_tar"
           rm -rf "$extract_root" "$bundle_root"
@@ -280,8 +280,8 @@ jobs:
       - name: Assemble bundled Typst packages
         shell: bash
         run: |
-          bundle_root="$PWD/backend/typst-packages/preview"
-          rm -rf "$PWD/backend/typst-packages"
+          bundle_root="$PWD/desktop/src/runtime/shared/typst-packages/preview"
+          rm -rf "$PWD/desktop/src/runtime/shared/typst-packages"
           mkdir -p "$bundle_root"
           for spec in "cmarker:${{ env.CMARKER_VERSION }}" "mitex:${{ env.MITEX_VERSION }}"; do
             name="${spec%%:*}"
@@ -296,7 +296,7 @@ jobs:
             tar -xzf "$download" -C "$extract_root"
             cp -R "$extract_root"/. "$target_dir"/
           done
-          find "$PWD/backend/typst-packages" -maxdepth 4 -type f | sort
+          find "$PWD/desktop/src/runtime/shared/typst-packages" -maxdepth 4 -type f | sort
 
       - name: Assemble bundled Python runtime
         shell: bash
@@ -310,7 +310,7 @@ jobs:
           print(python_bin.parent.parent)
           PY
           )"
-          bundle_root="$PWD/backend/python"
+          bundle_root="$PWD/desktop/src/runtime/linux/python"
           echo "Using Python executable: $python_bin"
           echo "Python runtime root: $python_root"
           rm -rf "$bundle_root"
@@ -443,7 +443,7 @@ jobs:
           typst_url="https://github.com/typst/typst/releases/download/v${typst_version}/typst-aarch64-apple-darwin.tar.xz"
           download_tar="$RUNNER_TEMP/typst-macos.tar.xz"
           extract_root="$RUNNER_TEMP/typst-macos"
-          bundle_root="$PWD/backend/typst-darwin"
+          bundle_root="$PWD/desktop/src/runtime/mac/typst"
           echo "Downloading Typst $typst_version from $typst_url"
           curl -L "$typst_url" -o "$download_tar"
           rm -rf "$extract_root" "$bundle_root"
@@ -460,8 +460,8 @@ jobs:
       - name: Assemble bundled Typst packages
         shell: bash
         run: |
-          bundle_root="$PWD/backend/typst-packages/preview"
-          rm -rf "$PWD/backend/typst-packages"
+          bundle_root="$PWD/desktop/src/runtime/shared/typst-packages/preview"
+          rm -rf "$PWD/desktop/src/runtime/shared/typst-packages"
           mkdir -p "$bundle_root"
           for spec in "cmarker:${{ env.CMARKER_VERSION }}" "mitex:${{ env.MITEX_VERSION }}"; do
             name="${spec%%:*}"
@@ -476,7 +476,7 @@ jobs:
             tar -xzf "$download" -C "$extract_root"
             cp -R "$extract_root"/. "$target_dir"/
           done
-          find "$PWD/backend/typst-packages" -maxdepth 4 -type f | sort
+          find "$PWD/desktop/src/runtime/shared/typst-packages" -maxdepth 4 -type f | sort
 
       - name: Install qpdf build dependency
         shell: bash
@@ -489,7 +489,7 @@ jobs:
         shell: bash
         run: |
           qpdf_prefix="$(brew --prefix qpdf)"
-          bundle_root="$PWD/backend/python"
+          bundle_root="$PWD/desktop/src/runtime/mac/python"
           echo "Using Python executable: $(python3 -c 'import sys; print(sys.executable)')"
           rm -rf "$bundle_root"
           python3 -m venv --copies "$bundle_root"
