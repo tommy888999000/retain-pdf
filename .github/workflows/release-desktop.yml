@@ -482,7 +482,7 @@ jobs:
             exit 1
           fi
           mkdir -p "$bundle_root/Frameworks"
-          rsync -a \
+          rsync -aL \
             --exclude '__pycache__' \
             "$framework_root/" "$framework_bundle_framework_root/"
           rm -f \
@@ -581,8 +581,8 @@ jobs:
             exit 1
           fi
           framework_root="$app_root/Contents/Resources/backend/python/Frameworks/Python.framework"
-          find "$framework_root" -maxdepth 2 -type l -exec ls -l {} \;
-          if find "$framework_root" -maxdepth 2 -type l -exec readlink {} \; | grep -q '^/Users/runner/'; then
+          find "$framework_root" -type l -exec ls -l {} \;
+          if find "$framework_root" -type l -exec readlink {} \; | grep -q '^/Users/runner/'; then
             echo "Packaged Python.framework still contains runner-local absolute symlinks" >&2
             exit 1
           fi
