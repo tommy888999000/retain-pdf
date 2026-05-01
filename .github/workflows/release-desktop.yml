@@ -475,7 +475,6 @@ jobs:
           bundle_python3="$bundle_root/bin/python3"
           bundle_python="$bundle_root/bin/python"
           bundle_python_versioned="$bundle_root/bin/python$framework_version"
-          framework_versioned_python="$framework_bundle_root/bin/python$framework_version"
           bundle_python_app="$framework_bundle_root/Resources/Python.app/Contents/MacOS/Python"
           echo "Using Python executable: $python_executable"
           rm -rf "$bundle_root"
@@ -515,12 +514,15 @@ jobs:
               "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
               "$bundle_python_versioned"
           fi
-          if [ -e "$framework_versioned_python" ]; then
+          while IFS= read -r framework_bin; do
+            if [ ! -f "$framework_bin" ] || ! file "$framework_bin" | grep -q 'Mach-O'; then
+              continue
+            fi
             install_name_tool \
               -change "$framework_version_root/$framework_binary_name" \
               "@executable_path/../Python" \
-              "$framework_versioned_python"
-          fi
+              "$framework_bin"
+          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
           install_name_tool \
             -id "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
             "$framework_bundle_root/$framework_binary_name"
@@ -539,9 +541,12 @@ jobs:
           if [ -e "$bundle_python_versioned" ]; then
             codesign --force --sign - "$bundle_python_versioned"
           fi
-          if [ -e "$framework_versioned_python" ]; then
-            codesign --force --sign - "$framework_versioned_python"
-          fi
+          while IFS= read -r framework_bin; do
+            if [ ! -f "$framework_bin" ] || ! file "$framework_bin" | grep -q 'Mach-O'; then
+              continue
+            fi
+            codesign --force --sign - "$framework_bin"
+          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
           export CPPFLAGS="-I$qpdf_prefix/include ${CPPFLAGS:-}"
           export LDFLAGS="-L$qpdf_prefix/lib ${LDFLAGS:-}"
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -555,9 +560,16 @@ jobs:
           if [ -e "$bundle_python_versioned" ]; then
             otool -L "$bundle_python_versioned"
           fi
-          if [ -e "$framework_versioned_python" ]; then
-            otool -L "$framework_versioned_python"
-          fi
+          while IFS= read -r framework_bin; do
+            if [ ! -f "$framework_bin" ] || ! file "$framework_bin" | grep -q 'Mach-O'; then
+              continue
+            fi
+            otool -L "$framework_bin"
+            if otool -L "$framework_bin" | grep -q '/Library/Frameworks/Python.framework'; then
+              echo "Packaged Python runtime still references system Python.framework: $framework_bin" >&2
+              exit 1
+            fi
+          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
           if [ -e "$bundle_python_app" ]; then
             otool -L "$bundle_python_app"
           fi
