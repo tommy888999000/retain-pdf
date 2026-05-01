@@ -499,14 +499,16 @@ jobs:
               echo "Missing Homebrew dylib dependency: $dep" >&2
               exit 1
             fi
-            if [ -e "$dest" ]; then
-              return
+            if [ ! -e "$dest" ]; then
+              mkdir -p "$dest_dir"
+              cp -pL "$dep" "$dest"
             fi
-            mkdir -p "$dest_dir"
-            cp -pL "$dep" "$dest"
             chmod u+w "$dest"
             while IFS= read -r child_dep; do
               if should_bundle_homebrew_dep "$child_dep"; then
+                if [ "$(basename "$child_dep")" = "$(basename "$dest")" ]; then
+                  continue
+                fi
                 bundle_dylib_dependency "$child_dep" "$dest_dir"
                 install_name_tool \
                   -change "$child_dep" \
