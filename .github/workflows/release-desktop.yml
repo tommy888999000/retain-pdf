@@ -538,6 +538,30 @@ jobs:
               codesign --force --sign - "$mach_o"
             fi
           }
+          rewrite_bundled_dylib_homebrew_deps() {
+            local dylib="$1"
+            local dest_dir
+            dest_dir="$(dirname "$dylib")"
+            local changed=0
+            while IFS= read -r dep; do
+              if ! should_bundle_homebrew_dep "$dep"; then
+                continue
+              fi
+              if [ "$(basename "$dep")" = "$(basename "$dylib")" ]; then
+                continue
+              fi
+              bundle_dylib_dependency "$dep" "$dest_dir"
+              install_name_tool \
+                -change "$dep" \
+                "@loader_path/$(basename "$dep")" \
+                "$dylib"
+              changed=1
+            done < <(otool -L "$dylib" | tail -n +2 | awk '{print $1}')
+            if [ "$changed" -eq 1 ]; then
+              install_name_tool -id "@loader_path/$(basename "$dylib")" "$dylib" || true
+              codesign --force --sign - "$dylib"
+            fi
+          }
           echo "Using Python executable: $python_executable"
           rm -rf "$bundle_root"
           python3 -m venv --copies "$bundle_root"
@@ -677,6 +701,14 @@ jobs:
               -type d -name '.dylibs' -prune -o \
               -type f \( -name '*.so' -o -name '*.dylib' \) -print
           )
+          for _ in 1 2 3; do
+            while IFS= read -r bundled_dylib; do
+              if ! file "$bundled_dylib" | grep -q 'Mach-O'; then
+                continue
+              fi
+              rewrite_bundled_dylib_homebrew_deps "$bundled_dylib"
+            done < <(find "$site_packages_root" -path '*/.dylibs/*.dylib' -type f -print)
+          done
           export PYTHONHOME="$framework_bundle_root"
           export PYTHONPATH="$site_packages_root:$python_lib_dynload"
           test -d "$python_lib_dynload"
