@@ -522,7 +522,7 @@ jobs:
               -change "$framework_version_root/$framework_binary_name" \
               "@executable_path/../Python" \
               "$framework_bin"
-          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
+          done < <(find "$framework_bundle_root" -type f -perm -111 -print)
           install_name_tool \
             -id "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
             "$framework_bundle_root/$framework_binary_name"
@@ -546,7 +546,7 @@ jobs:
               continue
             fi
             codesign --force --sign - "$framework_bin"
-          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
+          done < <(find "$framework_bundle_root" -type f -perm -111 -print)
           export CPPFLAGS="-I$qpdf_prefix/include ${CPPFLAGS:-}"
           export LDFLAGS="-L$qpdf_prefix/lib ${LDFLAGS:-}"
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
@@ -569,7 +569,7 @@ jobs:
               echo "Packaged Python runtime still references system Python.framework: $framework_bin" >&2
               exit 1
             fi
-          done < <(find "$framework_bundle_root/bin" -maxdepth 1 -type f -perm -111 -print)
+          done < <(find "$framework_bundle_root" -type f -perm -111 -print)
           if [ -e "$bundle_python_app" ]; then
             otool -L "$bundle_python_app"
           fi
