@@ -474,6 +474,7 @@ jobs:
           framework_binary_name="$framework_python"
           bundle_python3="$bundle_root/bin/python3"
           bundle_python="$bundle_root/bin/python"
+          bundle_python_app="$framework_bundle_root/Resources/Python.app/Contents/MacOS/Python"
           echo "Using Python executable: $python_executable"
           rm -rf "$bundle_root"
           python3 -m venv --copies "$bundle_root"
@@ -509,6 +510,13 @@ jobs:
           install_name_tool \
             -id "@executable_path/../Frameworks/$framework_python.framework/Versions/$framework_version/$framework_binary_name" \
             "$framework_bundle_root/$framework_binary_name"
+          if [ -e "$bundle_python_app" ]; then
+            install_name_tool \
+              -change "$framework_version_root/$framework_binary_name" \
+              "@executable_path/../../../../$framework_binary_name" \
+              "$bundle_python_app"
+            codesign --force --sign - "$bundle_python_app"
+          fi
           codesign --force --sign - "$framework_bundle_root/$framework_binary_name"
           codesign --force --sign - "$bundle_python3"
           if [ -e "$bundle_python" ]; then
@@ -524,6 +532,9 @@ jobs:
           print("python_bundle_import_check=ok")
           PY
           otool -L "$bundle_python3"
+          if [ -e "$bundle_python_app" ]; then
+            otool -L "$bundle_python_app"
+          fi
           du -sh "$bundle_root"
 
       - name: Install desktop dependencies
@@ -587,6 +598,28 @@ jobs:
             exit 1
           fi
           otool -L "$python_bin"
+          python_app_bin="$framework_root/Versions/Current/Resources/Python.app/Contents/MacOS/Python"
+          if [ -e "$python_app_bin" ]; then
+            echo "checking Python.app launcher dependencies: $python_app_bin"
+            otool -L "$python_app_bin"
+            if otool -L "$python_app_bin" | grep -q '/Library/Frameworks/Python.framework'; then
+              echo "Packaged Python.app launcher still references system Python.framework: $python_app_bin" >&2
+              exit 1
+            fi
+          fi
+          while IFS= read -r mach_o; do
+            if ! file "$mach_o" | grep -q 'Mach-O'; then
+              continue
+            fi
+            echo "checking Mach-O dependencies: $mach_o"
+            otool -L "$mach_o"
+            if otool -L "$mach_o" | grep -q '/Library/Frameworks/Python.framework'; then
+              echo "Packaged Python runtime still references system Python.framework: $mach_o" >&2
+              exit 1
+            fi
+          done < <(
+            find "$app_root/Contents/Resources/backend/python" -type f -perm -111 -print
+          )
           "$python_bin" - <<'PY'
           import requests, fitz, pikepdf, PIL, urllib3
           print("packaged_python_import_check=ok")
