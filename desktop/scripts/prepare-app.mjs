@@ -166,19 +166,13 @@ function pruneBundledMacPythonRuntime(root) {
     return;
   }
   const frameworkVersionsRoot = path.join(root, "Frameworks", "Python.framework", "Versions");
-  const currentVersionLink = path.join(frameworkVersionsRoot, "Current");
-  let currentFrameworkVersion = "";
-  if (fs.existsSync(currentVersionLink)) {
-    try {
-      currentFrameworkVersion = path.basename(fs.readlinkSync(currentVersionLink));
-    } catch {
-      currentFrameworkVersion = "";
-    }
-  }
   const libRoot = path.join(root, "lib");
   const pythonLibDir = fs.existsSync(libRoot)
     ? fs.readdirSync(libRoot).find((entry) => /^python\d+\.\d+$/.test(entry))
     : null;
+  const expectedFrameworkVersion = pythonLibDir
+    ? pythonLibDir.replace(/^python/, "")
+    : "";
   const removalTargets = [
     path.join(root, "Frameworks", "Python.framework", "Headers"),
     path.join(root, "Frameworks", "Python.framework", "Versions", "Current", "Frameworks", "Tk.framework"),
@@ -221,10 +215,15 @@ function pruneBundledMacPythonRuntime(root) {
       if (!entry.isDirectory()) {
         continue;
       }
-      if (entry.name === "Current" || entry.name === currentFrameworkVersion) {
+      if (entry.name === "Current" || entry.name === expectedFrameworkVersion) {
         continue;
       }
       fs.rmSync(path.join(frameworkVersionsRoot, entry.name), { recursive: true, force: true });
+    }
+    if (expectedFrameworkVersion) {
+      const currentLink = path.join(frameworkVersionsRoot, "Current");
+      fs.rmSync(currentLink, { recursive: true, force: true });
+      fs.symlinkSync(expectedFrameworkVersion, currentLink);
     }
   }
 
