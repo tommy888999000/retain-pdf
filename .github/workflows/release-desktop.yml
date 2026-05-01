@@ -600,10 +600,28 @@ jobs:
           export PKG_CONFIG_PATH="$qpdf_prefix/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
           "$bundle_python3" -m pip install --upgrade pip
           "$bundle_python3" -m pip install -r desktop/requirements-desktop-posix.txt
+          export PYTHONHOME="$framework_bundle_root/Versions/Current"
+          export PYTHONPATH="$bundle_root/lib/python$framework_version/site-packages"
+          test -d "$PYTHONHOME/lib/python$framework_version/lib-dynload"
+          ls "$PYTHONHOME/lib/python$framework_version/lib-dynload"/_socket*.so >/dev/null
           "$bundle_python3" - <<'PY'
-          import requests, fitz, pikepdf, PIL, urllib3
+          import importlib
+          import pathlib
+          import sys
+
+          print(f"python_prefix={sys.prefix}")
+          print(f"python_exec_prefix={sys.exec_prefix}")
+          lib_dynload = pathlib.Path(sys.exec_prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "lib-dynload"
+          socket_ext = next(lib_dynload.glob("_socket*.so"), None)
+          if socket_ext is None:
+              raise SystemExit(f"missing _socket extension under {lib_dynload}")
+          print(f"python_socket_ext={socket_ext}")
+          for module_name in ["_socket", "socket", "ssl", "requests", "fitz", "pikepdf", "PIL", "urllib3"]:
+              importlib.import_module(module_name)
           print("python_bundle_import_check=ok")
           PY
+          unset PYTHONHOME
+          unset PYTHONPATH
           otool -L "$bundle_python3"
           if [ -e "$bundle_python_versioned" ]; then
             otool -L "$bundle_python_versioned"
@@ -718,8 +736,26 @@ jobs:
           done < <(
             find "$app_root/Contents/Resources/backend/python" -type f -perm -111 -print
           )
+          export PYTHONHOME="$app_root/Contents/Resources/backend/python/Frameworks/Python.framework/Versions/Current"
+          export PYTHONPATH="$app_root/Contents/Resources/backend/python/lib/python3.11/site-packages"
+          test -d "$PYTHONHOME/lib/python3.11/lib-dynload"
+          ls "$PYTHONHOME/lib/python3.11/lib-dynload"/_socket*.so >/dev/null
           "$python_bin" - <<'PY'
-          import requests, fitz, pikepdf, PIL, urllib3
+          import importlib
+          import pathlib
+          import sys
+
+          print(f"packaged_python_prefix={sys.prefix}")
+          print(f"packaged_python_exec_prefix={sys.exec_prefix}")
+          print(f"packaged_python_base_exec_prefix={sys.base_exec_prefix}")
+          print("packaged_python_sys_path=" + "|".join(sys.path))
+          lib_dynload = pathlib.Path(sys.exec_prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "lib-dynload"
+          socket_ext = next(lib_dynload.glob("_socket*.so"), None)
+          if socket_ext is None:
+              raise SystemExit(f"missing _socket extension under {lib_dynload}")
+          print(f"packaged_python_socket_ext={socket_ext}")
+          for module_name in ["_socket", "socket", "ssl", "requests", "fitz", "pikepdf", "PIL", "urllib3"]:
+              importlib.import_module(module_name)
           print("packaged_python_import_check=ok")
           PY
 

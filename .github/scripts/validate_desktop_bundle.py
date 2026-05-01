@@ -39,6 +39,8 @@ def main() -> None:
     require(payload.get("typstBundled") is True, "bundle manifest missing Typst runtime")
     require(payload.get("typstPackagesBundled") is True, "bundle manifest missing Typst packages")
     require(bool(payload.get("bundledPythonImportCheck")), "bundle manifest missing Python import check result")
+    if payload.get("targetPlatformName") == "mac":
+        require(bool(payload.get("bundledPythonHome")), "mac bundle manifest missing Python framework home")
 
     bundled_fonts = payload.get("bundledFonts") or []
     require(

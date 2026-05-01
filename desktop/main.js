@@ -403,11 +403,26 @@ function resolvePythonRuntime(backendRoot) {
   return { command: "python3", bundledHome: null };
 }
 
-function shouldSetBundledPythonHome(bundledHome) {
+function resolveBundledPythonHome(bundledHome) {
   if (!bundledHome || !fs.existsSync(bundledHome)) {
-    return false;
+    return "";
   }
-  return !fs.existsSync(path.join(bundledHome, "pyvenv.cfg"));
+  if (process.platform === "darwin") {
+    const frameworkHome = path.join(
+      bundledHome,
+      "Frameworks",
+      "Python.framework",
+      "Versions",
+      "Current",
+    );
+    if (fs.existsSync(frameworkHome)) {
+      return frameworkHome;
+    }
+  }
+  if (!fs.existsSync(path.join(bundledHome, "pyvenv.cfg"))) {
+    return bundledHome;
+  }
+  return "";
 }
 
 function buildPythonProbeScript(includeDependencyImports) {
@@ -415,6 +430,7 @@ function buildPythonProbeScript(includeDependencyImports) {
     return [
       "import sys",
       "print(sys.executable, flush=True)",
+      "print(f'prefix={sys.prefix} exec_prefix={sys.exec_prefix} base_exec_prefix={sys.base_exec_prefix}', flush=True)",
       "print('python_runtime_startup_check=ok', flush=True)",
     ].join("\n");
   }
@@ -423,7 +439,8 @@ function buildPythonProbeScript(includeDependencyImports) {
     "import importlib",
     "import sys",
     "print(sys.executable, flush=True)",
-    "for module_name in ['requests', 'fitz', 'pikepdf', 'PIL', 'urllib3']:",
+    "print(f'prefix={sys.prefix} exec_prefix={sys.exec_prefix} base_exec_prefix={sys.base_exec_prefix}', flush=True)",
+    "for module_name in ['_socket', 'socket', 'ssl', 'requests', 'fitz', 'pikepdf', 'PIL', 'urllib3']:",
     "    print(f'importing:{module_name}', flush=True)",
     "    importlib.import_module(module_name)",
     "    print(f'imported:{module_name}', flush=True)",
@@ -446,8 +463,16 @@ function probePythonRuntime(runtime, options = {}) {
       PYTHONUNBUFFERED: "1",
       PYTHONUTF8: "1",
     };
-    if (shouldSetBundledPythonHome(runtime.bundledHome)) {
-      env.PYTHONHOME = runtime.bundledHome;
+    const sitePackages = bundledPythonSitePackages(runtime.bundledHome);
+    if (sitePackages.length > 0) {
+      env.PYTHONPATH = [
+        ...sitePackages,
+        process.env.PYTHONPATH || "",
+      ].filter(Boolean).join(path.delimiter);
+    }
+    const bundledPythonHome = resolveBundledPythonHome(runtime.bundledHome);
+    if (bundledPythonHome) {
+      env.PYTHONHOME = bundledPythonHome;
     } else {
       delete env.PYTHONHOME;
     }
@@ -714,8 +739,11 @@ async function startBundledBackend() {
   if (fs.existsSync(typstPackagePath)) {
     env.TYPST_PACKAGE_PATH = typstPackagePath;
   }
-  if (shouldSetBundledPythonHome(pythonRuntime.bundledHome)) {
-    env.PYTHONHOME = pythonRuntime.bundledHome;
+  const bundledPythonHome = resolveBundledPythonHome(pythonRuntime.bundledHome);
+  if (bundledPythonHome) {
+    env.PYTHONHOME = bundledPythonHome;
+  } else {
+    delete env.PYTHONHOME;
   }
   if (fs.existsSync(typstBin)) {
     env.TYPST_BIN = typstBin;

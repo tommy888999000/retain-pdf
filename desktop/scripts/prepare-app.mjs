@@ -375,11 +375,40 @@ function bundledPythonSitePackages(root) {
   return matches;
 }
 
+function resolveBundledPythonHome(root) {
+  if (!root || !fs.existsSync(root)) {
+    return "";
+  }
+  if (targetPlatform === "darwin") {
+    const frameworkVersionsRoot = path.join(
+      root,
+      "Frameworks",
+      "Python.framework",
+      "Versions",
+    );
+    const frameworkHome = path.join(frameworkVersionsRoot, "Current");
+    if (fs.existsSync(frameworkHome)) {
+      return frameworkHome;
+    }
+    if (fs.existsSync(frameworkVersionsRoot)) {
+      const version = fs.readdirSync(frameworkVersionsRoot).find((entry) => /^\d+\.\d+$/.test(entry));
+      if (version) {
+        return path.join(frameworkVersionsRoot, version);
+      }
+    }
+  }
+  if (!fs.existsSync(path.join(root, "pyvenv.cfg"))) {
+    return root;
+  }
+  return "";
+}
+
 function verifyBundledPythonRuntime(root) {
   const pythonCommand = resolveBundledPythonCommand(root);
   if (!pythonCommand) {
     throw new Error(`Bundled Python runtime missing executable under ${root}`);
   }
+  const bundledPythonHome = resolveBundledPythonHome(root);
   const env = {
     ...process.env,
     PYTHONUNBUFFERED: "1",
@@ -387,14 +416,22 @@ function verifyBundledPythonRuntime(root) {
     PYTHONDONTWRITEBYTECODE: "1",
     PYTHONPATH: bundledPythonSitePackages(root).join(path.delimiter),
   };
+  if (bundledPythonHome) {
+    env.PYTHONHOME = bundledPythonHome;
+  } else {
+    delete env.PYTHONHOME;
+  }
   const probe = spawnSync(
     pythonCommand,
     [
       "-c",
       [
-        "import fitz, requests, pikepdf, PIL, urllib3",
+        "import importlib, sys",
+        "print(f'python_prefix={sys.prefix} python_exec_prefix={sys.exec_prefix}')",
+        "for module_name in ['_socket', 'socket', 'ssl', 'fitz', 'requests', 'pikepdf', 'PIL', 'urllib3']:",
+        "    importlib.import_module(module_name)",
         "print('python_bundle_import_check=ok')",
-      ].join("; "),
+      ].join("\n"),
     ],
     {
       env,
@@ -407,6 +444,7 @@ function verifyBundledPythonRuntime(root) {
   }
   return {
     pythonCommand,
+    pythonHome: bundledPythonHome,
     sitePackages: bundledPythonSitePackages(root),
     importCheck: probe.stdout.trim() || "python_bundle_import_check=ok",
   };
@@ -717,6 +755,9 @@ const manifest = {
   rustApiBinaryName: rustApiBinary.fileName,
   pythonBundled,
   bundledPythonExecutable: bundledPythonDiagnostics ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonCommand) : null,
+  bundledPythonHome: bundledPythonDiagnostics && bundledPythonDiagnostics.pythonHome
+    ? path.relative(outputBackendRoot, bundledPythonDiagnostics.pythonHome)
+    : null,
   bundledPythonSitePackages: bundledPythonDiagnostics
     ? bundledPythonDiagnostics.sitePackages.map((entry) => path.relative(outputBackendRoot, entry))
     : [],
