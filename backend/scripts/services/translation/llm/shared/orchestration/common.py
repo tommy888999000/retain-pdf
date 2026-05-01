@@ -11,6 +11,7 @@ from services.translation.llm.placeholder_guard import has_formula_placeholders
 from services.translation.llm.placeholder_guard import is_direct_math_mode
 from services.translation.llm.placeholder_guard import placeholder_sequence
 from services.translation.llm.placeholder_guard import should_force_translate_body_text
+from services.translation.payload.parts.common import item_source_text
 from services.translation.policy.metadata_filter import looks_like_hard_nontranslatable_metadata
 
 
@@ -36,16 +37,6 @@ def chunk_source_text_fallback(source_text: str, *, words_per_chunk: int = 48) -
     if len(words) <= words_per_chunk:
         return [str(source_text or "").strip()] if str(source_text or "").strip() else []
     return [" ".join(words[i : i + words_per_chunk]).strip() for i in range(0, len(words), words_per_chunk)]
-
-
-def item_source_text(item: dict) -> str:
-    return str(
-        item.get("translation_unit_protected_source_text")
-        or item.get("group_protected_source_text")
-        or item.get("protected_source_text")
-        or item.get("source_text")
-        or ""
-    )
 
 
 def is_continuation_or_group_unit(item: dict) -> bool:

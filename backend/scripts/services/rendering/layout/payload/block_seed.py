@@ -24,6 +24,7 @@ from services.rendering.layout.payload.capacity import estimated_render_height_p
 from services.rendering.layout.payload.metrics import fit_translated_block_metrics
 from services.rendering.layout.payload.shared import COMPACT_SCALE
 from services.rendering.layout.payload.shared import HEAVY_COMPACT_RATIO
+from services.rendering.layout.payload.shared import get_render_formula_map
 from services.rendering.layout.payload.shared import get_render_protected_text
 from services.rendering.layout.payload.shared import is_flag_like_plain_text_block
 from services.rendering.layout.payload.shared import translation_density_ratio
@@ -134,7 +135,7 @@ def build_block_payloads(
 
         use_raw_text_bbox = bool(item.get("_use_raw_text_bbox"))
         font_size_pt, leading_em = base_metrics[index]
-        formula_map = item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("formula_map", [])
+        formula_map = get_render_formula_map(item)
         density_ratio = translation_density_ratio(item, translated_text)
         page_box_area_ratio = compute_page_box_area_ratio(bbox, page_width, page_height)
         dense_small_box = density_ratio >= 0.9 and 0 < page_box_area_ratio <= SMALL_PAGE_BOX_RATIO

@@ -26,12 +26,8 @@ def map_block_kind(raw_label: str, *, text: str = "") -> tuple[str, str, list[st
     if label == "number":
         return "text", "page_number", ["skip_translation"], {}
     if label == "figure_title":
-        lowered = text.lower()
-        if "table" in lowered:
-            return "text", "table_caption", ["caption", "table_caption"], {"caption_target": "table"}
-        if "figure" in lowered or "listing" in lowered:
-            return "text", "image_caption", ["caption", "image_caption"], {"caption_target": "image"}
-        return "text", "caption", ["caption"], {"caption_target": "unknown"}
+        del text
+        return "text", "figure_caption", ["caption", "figure_caption"], {"caption_target": "figure"}
     if label == "table":
         return "table", "table_html", ["table"], {}
     if label in {"chart", "header_image", "footer_image"}:

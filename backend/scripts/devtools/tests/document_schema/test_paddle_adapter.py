@@ -400,6 +400,144 @@ def test_paddle_classifies_metadata_text_cues_before_translation() -> None:
     assert classified[5][:2] == ("text", "body")
 
 
+def test_paddle_does_not_treat_body_bullets_as_metadata() -> None:
+    classified = classify_page_blocks(
+        [
+            {
+                "block_label": "text",
+                "block_content": (
+                    "• Knowledge: In assessments of broad world knowledge, DeepSeek-V4-Pro-Max "
+                    "significantly outperforms leading open-source models on the SimpleQA benchmark."
+                ),
+            },
+            {
+                "block_label": "text",
+                "block_content": (
+                    "• Reasoning: Through the expansion of reasoning tokens, DeepSeek-V4-Pro-Max "
+                    "demonstrates superior performance relative to GPT-5.2 on standard reasoning benchmarks."
+                ),
+            },
+            {
+                "block_label": "text",
+                "block_content": "• Keywords: document parsing; translation; layout analysis",
+            },
+        ]
+    )
+
+    assert classified[0][:2] == ("text", "body")
+    assert classified[1][:2] == ("text", "body")
+    assert classified[2][:2] == ("text", "metadata")
+
+
+def test_paddle_limits_metadata_bullet_by_word_count() -> None:
+    classified = classify_page_blocks(
+        [
+            {
+                "block_label": "text",
+                "block_content": (
+                    "• Keywords: a b c d e f g h i j k l m n o p q r s t u v w x y z "
+                    "this is already too long to be treated as a tiny metadata fragment"
+                ),
+            },
+            {
+                "block_label": "text",
+                "block_content": "• DOI: 10.1000/xyz123",
+            },
+        ]
+    )
+
+    assert classified[0][:2] == ("text", "body")
+    assert classified[1][:2] == ("text", "metadata")
+
+
+def test_paddle_metadata_cues_must_appear_at_start() -> None:
+    classified = classify_page_blocks(
+        [
+            {
+                "block_label": "text",
+                "block_content": (
+                    "This paragraph discusses benchmark setup and mentions keywords: translation, "
+                    "layout, parsing in the middle of normal body text."
+                ),
+            },
+            {
+                "block_label": "text",
+                "block_content": (
+                    "The appendix also references doi: 10.1000/xyz123 inside a longer explanatory sentence."
+                ),
+            },
+            {
+                "block_label": "text",
+                "block_content": "Keywords: translation; layout; parsing",
+            },
+            {
+                "block_label": "text",
+                "block_content": "• Keywords: translation; layout; parsing",
+            },
+        ]
+    )
+
+    assert classified[0][:2] == ("text", "body")
+    assert classified[1][:2] == ("text", "body")
+    assert classified[2][:2] == ("text", "metadata")
+    assert classified[3][:2] == ("text", "metadata")
+
+
+def test_paddle_figure_title_maps_to_figure_caption() -> None:
+    classified = classify_page_blocks(
+        [
+            {"block_label": "figure_title", "block_content": "Figure 3: Overall pipeline."},
+            {"block_label": "figure_title", "block_content": "Table note: Results improve after reranking."},
+        ]
+    )
+
+    assert classified[0] == ("text", "figure_caption", ["caption", "figure_caption"], {"caption_target": "figure"})
+    assert classified[1] == ("text", "figure_caption", ["caption", "figure_caption"], {"caption_target": "figure"})
+
+
+def test_paddle_figure_title_is_translatable() -> None:
+    payload = {
+        "layoutParsingResults": [
+            {
+                "prunedResult": {
+                    "parsing_res_list": [
+                        {"block_label": "figure_title", "block_content": "Figure 1. Example caption."},
+                    ]
+                },
+                "markdown": {"text": "", "images": {}},
+            }
+        ],
+        "dataInfo": {"pages": [{"width": 1200, "height": 1600}], "type": "paddle"},
+    }
+
+    from services.document_schema.provider_adapters.paddle.page_reader import build_page_spec
+
+    block = build_page_spec(page_payload=payload["layoutParsingResults"][0], page_index=0, page_meta={}, preprocessed_image="")["blocks"][0]
+    assert block.get("sub_type") == "figure_caption"
+    assert block.get("policy", {}).get("translate") is True
+
+
+def test_paddle_figure_caption_enters_translation_items() -> None:
+    payload = {
+        "layoutParsingResults": [
+            {
+                "prunedResult": {
+                    "parsing_res_list": [
+                        {"block_label": "figure_title", "block_content": "Figure 1. Example caption."},
+                    ]
+                },
+                "markdown": {"text": "", "images": {}},
+            }
+        ],
+        "dataInfo": {"pages": [{"width": 1200, "height": 1600}], "type": "paddle"},
+    }
+
+    from services.document_schema.provider_adapters.paddle.page_reader import build_page_spec
+    page_spec = build_page_spec(page_payload=payload["layoutParsingResults"][0], page_index=0, page_meta={}, preprocessed_image="")
+    assert page_spec["blocks"][0]["sub_type"] == "figure_caption"
+    assert page_spec["blocks"][0]["policy"]["translate"] is True
+
+
 def test_paddle_classifies_ancillary_tail_headings_as_metadata() -> None:
     classified = classify_page_blocks(
         [

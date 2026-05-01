@@ -12,6 +12,13 @@ _PADDLE_METADATA_TEXT_RE = re.compile(
     r"supporting information is available free of charge|e-mail:|orcid)",
     re.I,
 )
+_PADDLE_METADATA_BULLET_RE = re.compile(
+    r"^[•▪◦]\s*(?:keywords?\s*:|doi:|cite this article as:|submit your manuscript here|open access|copyright|"
+    r"authors declare|competing interests?|competing financial interest|funded by|received:|accepted:|published:|"
+    r"supporting information is available free of charge|e-mail:|orcid)",
+    re.I,
+)
+_ASCII_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)?")
 _ANCILLARY_TAIL_HEADINGS = {
     "competing interests",
     "authors' contributions",
@@ -74,24 +81,8 @@ def resolve_figure_title(
     text: str,
     previous_anchor: tuple[str, int] | None,
 ) -> tuple[str, str, list[str], dict]:
-    lowered = text.lower()
-    if "table" in lowered:
-        return "text", "table_caption", ["caption", "table_caption"], {"caption_target": "table"}
-    if "figure" in lowered:
-        return "text", "image_caption", ["caption", "image_caption"], {"caption_target": "image"}
-    if "listing" in lowered:
-        if previous_anchor and previous_anchor[0] == "code_block":
-            return "text", "code_caption", ["caption", "code_caption"], {"caption_target": "code"}
-        return "text", "image_caption", ["caption", "image_caption"], {"caption_target": "image"}
-    if previous_anchor:
-        target = previous_anchor[0]
-        if target in {"table_html", "table"}:
-            return "text", "table_caption", ["caption", "table_caption"], {"caption_target": "table"}
-        if target in {"image_body", "image"}:
-            return "text", "image_caption", ["caption", "image_caption"], {"caption_target": "image"}
-        if target in {"code_block", "code"}:
-            return "text", "code_caption", ["caption", "code_caption"], {"caption_target": "code"}
-    return "text", "caption", ["caption"], {"caption_target": "unknown"}
+    del text, previous_anchor
+    return "text", "figure_caption", ["caption", "figure_caption"], {"caption_target": "figure"}
 
 
 def resolve_vision_footnote(
@@ -146,7 +137,7 @@ def _looks_like_metadata_text(text: str) -> bool:
     compact = " ".join((text or "").split()).strip()
     if not compact:
         return False
-    if compact.startswith("•"):
+    if _is_short_metadata_bullet(compact):
         return True
     return bool(_PADDLE_METADATA_TEXT_RE.search(compact))
 
@@ -154,3 +145,14 @@ def _looks_like_metadata_text(text: str) -> bool:
 def _looks_like_ancillary_tail_heading(text: str) -> bool:
     compact = " ".join((text or "").split()).strip().lower()
     return compact in _ANCILLARY_TAIL_HEADINGS
+
+
+def _ascii_word_count(text: str) -> int:
+    return len(_ASCII_WORD_RE.findall(text or ""))
+
+
+def _is_short_metadata_bullet(text: str) -> bool:
+    compact = " ".join((text or "").split()).strip()
+    if not compact or not _PADDLE_METADATA_BULLET_RE.search(compact):
+        return False
+    return _ascii_word_count(compact) <= 24

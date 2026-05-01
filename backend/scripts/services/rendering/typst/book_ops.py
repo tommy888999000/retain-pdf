@@ -95,6 +95,7 @@ def build_single_page_typst_pdf(
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
     cover_only: bool = False,
+    redaction_strategy: str | None = None,
 ) -> None:
     prepared_items = prepare_single_page_items(translated_items, page_idx)
     source_doc = fitz.open(source_pdf_path)
@@ -113,6 +114,7 @@ def build_single_page_typst_pdf(
         font_paths=font_paths,
         temp_root=resolve_typst_temp_root(output_pdf_path, temp_root),
         cover_only=cover_only,
+        redaction_strategy=redaction_strategy,
     )
     save_optimized_pdf(temp_doc, output_pdf_path)
     temp_doc.close()
@@ -131,6 +133,7 @@ def build_book_typst_pdf(
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
     cover_only: bool = False,
+    redaction_strategy: str | None = None,
 ) -> dict[str, object]:
     doc = _build_overlay_base_doc(source_pdf_path)
     try:
@@ -148,6 +151,7 @@ def build_book_typst_pdf(
             font_paths=font_paths,
             temp_root=typst_temp_root,
             cover_only=cover_only,
+            redaction_strategy=redaction_strategy,
         )
         overlay_elapsed = time.perf_counter() - overlay_started
         print(
@@ -186,6 +190,7 @@ def build_dual_book_pdf(
     font_paths: list[Path] | None = None,
     temp_root: Path | None = None,
     cover_only: bool = False,
+    redaction_strategy: str | None = None,
 ) -> None:
     source_doc = fitz.open(source_pdf_path)
     translated_doc = fitz.open(source_pdf_path)
@@ -204,6 +209,7 @@ def build_dual_book_pdf(
             font_paths=font_paths,
             temp_root=typst_temp_root,
             cover_only=cover_only,
+            redaction_strategy=redaction_strategy,
         )
         build_dual_doc_pages(
             source_doc,

@@ -31,10 +31,16 @@ def overlay_translated_items_on_page(
     temp_root: Path | None = None,
     cover_only: bool = False,
     apply_source_overlay: bool = True,
+    redaction_strategy: str | None = None,
 ) -> None:
     translated_items = mark_image_page_overlay_mode(page, translated_items)
     if apply_source_overlay:
-        apply_source_page_overlay(page, translated_items, cover_only=cover_only)
+        apply_source_page_overlay(
+            page,
+            translated_items,
+            cover_only=cover_only,
+            redaction_strategy=redaction_strategy,
+        )
     overlay_pdf = compile_page_overlay_pdf(
         page.rect.width,
         page.rect.height,
@@ -69,6 +75,7 @@ def overlay_translated_pages_on_doc(
     temp_root: Path | None = None,
     cover_only: bool = False,
     apply_source_overlay: bool = True,
+    redaction_strategy: str | None = None,
 ) -> dict[str, object]:
     translated_pages = prepare_render_payloads_by_page(translated_pages)
     ordered_page_indices, translated_pages = prepare_overlay_doc_pages(doc, translated_pages)
@@ -108,6 +115,7 @@ def overlay_translated_pages_on_doc(
             overlay_pdf,
             cover_only=cover_only,
             apply_source_overlay=apply_source_overlay,
+            redaction_strategy=redaction_strategy,
         )
         diagnostics["compile_elapsed_seconds"] = time.perf_counter() - compile_started
         diagnostics["sanitize_elapsed_seconds"] = 0.0
@@ -150,6 +158,7 @@ def overlay_translated_pages_on_doc(
             overlay_pdf,
             cover_only=cover_only,
             apply_source_overlay=apply_source_overlay,
+            redaction_strategy=redaction_strategy,
         )
         diagnostics["compile_elapsed_seconds"] = first_compile_elapsed + (time.perf_counter() - sanitized_compile_started)
         diagnostics["sanitize_elapsed_seconds"] = sanitize_elapsed
@@ -177,6 +186,7 @@ def overlay_translated_pages_on_doc(
         temp_root=temp_root,
         cover_only=cover_only,
         apply_source_overlay=apply_source_overlay,
+        redaction_strategy=redaction_strategy,
     )
     diagnostics["compile_elapsed_seconds"] = first_compile_elapsed + diagnostics.get("page_overlay_compile_elapsed_seconds", 0.0)
     diagnostics["sanitize_elapsed_seconds"] = sanitize_elapsed

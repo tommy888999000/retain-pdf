@@ -9,6 +9,13 @@ from services.rendering.layout.payload.metrics import block_metrics
 from services.rendering.layout.payload.metrics import box_capacity_units
 from services.rendering.layout.payload.metrics import text_demand_units
 from services.rendering.formula.mode_router import is_direct_typst_math_mode
+from services.rendering.layout.payload.render_item import clear_render_fields
+from services.rendering.layout.payload.render_item import group_render_unit_items
+from services.rendering.layout.payload.render_item import group_unit_formula_map
+from services.rendering.layout.payload.render_item import group_unit_protected_text
+from services.rendering.layout.payload.render_item import group_unit_source_text
+from services.rendering.layout.payload.render_item import item_has_group_render_text
+from services.rendering.layout.payload.render_item import seed_render_fields
 from services.rendering.layout.payload.shared import same_meaningful_render_text
 from services.rendering.layout.payload.shared import split_protected_text_for_boxes
 from services.rendering.layout.payload.suspicious_ocr import detect_and_drop_suspicious_ocr_glued_blocks
@@ -77,66 +84,22 @@ def prepare_render_payloads_by_page(translated_pages: dict[int, list[dict]]) -> 
             page_text_width_med,
         )
         for item in items:
-            unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
-            render_text = (
-                (
-                    item.get("protected_translated_text")
-                    or item.get("translated_text")
-                    or item.get("translation_unit_protected_translated_text")
-                    or ""
-                )
-                if unit_kind == "single"
-                else (
-                    item.get("translation_unit_protected_translated_text")
-                    or item.get("protected_translated_text")
-                    or ""
-                )
-            ).strip()
-            source_text = (
-                (
-                    item.get("protected_source_text")
-                    or item.get("source_text")
-                    or item.get("translation_unit_protected_source_text")
-                    or ""
-                )
-                if unit_kind == "single"
-                else (
-                    item.get("translation_unit_protected_source_text")
-                    or item.get("protected_source_text")
-                    or ""
-                )
-            ).strip()
-            item["render_protected_text"] = "" if same_meaningful_render_text(source_text, render_text) else render_text
-            item["render_source_text"] = source_text
-            item["render_formula_map"] = item.get("translation_unit_formula_map") or item.get("formula_map", [])
+            seed_render_fields(item)
             flat_items.append(item)
 
-    units: dict[str, list[dict]] = {}
-    for item in flat_items:
-        unit_id = str(item.get("translation_unit_id", "") or "")
-        if item.get("translation_unit_kind") == "group" and unit_id:
-            units.setdefault(unit_id, []).append(item)
+    units = group_render_unit_items(flat_items)
 
     for _, items in units.items():
-        items = [item for item in items if (item.get("translation_unit_protected_translated_text") or "").strip()]
+        items = [item for item in items if item_has_group_render_text(item)]
         if not items:
             continue
         direct_math_mode = any(is_direct_typst_math_mode(item) for item in items)
-        unit_formula_map = items[0].get("translation_unit_formula_map") or items[0].get("group_formula_map", [])
-        protected_unit_text = (
-            items[0].get("translation_unit_protected_translated_text")
-            or items[0].get("group_protected_translated_text")
-            or ""
-        ).strip()
-        protected_unit_source_text = (
-            items[0].get("translation_unit_protected_source_text")
-            or items[0].get("group_protected_source_text")
-            or ""
-        ).strip()
+        unit_formula_map = group_unit_formula_map(items)
+        protected_unit_text = group_unit_protected_text(items)
+        protected_unit_source_text = group_unit_source_text(items)
         if same_meaningful_render_text(protected_unit_source_text, protected_unit_text):
             for item in items:
-                item["render_protected_text"] = ""
-                item["render_formula_map"] = []
+                clear_render_fields(item)
             continue
         capacities: list[float] = []
         source_weights: list[float] = []

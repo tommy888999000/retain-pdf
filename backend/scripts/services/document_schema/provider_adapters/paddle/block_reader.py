@@ -25,6 +25,7 @@ def _paddle_layout_role(*, block_type: str, sub_type: str) -> str:
         "footer": "footer",
         "page_number": "page_number",
         "footnote": "footnote",
+        "figure_caption": "caption",
         "metadata": "unknown",
         "reference_entry": "unknown",
         "formula_number": "unknown",
@@ -54,13 +55,15 @@ def _paddle_structure_role(*, block_type: str, sub_type: str) -> str:
         return ""
     if sub_type == "body":
         return "body"
+    if sub_type == "figure_caption":
+        return "figure_caption"
     if sub_type == "heading":
         return "heading"
     if sub_type == "title":
         return "title"
     if sub_type == "reference_entry":
         return "reference_entry"
-    if sub_type in {"caption", "image_caption", "table_caption", "code_caption"}:
+    if sub_type in {"caption", "figure_caption", "image_caption", "table_caption", "code_caption"}:
         return "caption"
     if sub_type in {"footnote", "image_footnote", "table_footnote"}:
         return "footnote"
@@ -73,6 +76,8 @@ def _paddle_translate_policy(*, raw_label: str, block_type: str, sub_type: str) 
         return {"translate": False, "translate_reason": f"provider_non_text:{block_type or 'unknown'}"}
     if label == "abstract":
         return {"translate": True, "translate_reason": "provider_body_whitelist:abstract"}
+    if sub_type == "figure_caption":
+        return {"translate": True, "translate_reason": "provider_caption_whitelist:figure_caption"}
     if sub_type == "body":
         return {"translate": True, "translate_reason": "provider_body_whitelist:body"}
     return {"translate": False, "translate_reason": f"provider_non_body:{sub_type or label or 'unknown'}"}

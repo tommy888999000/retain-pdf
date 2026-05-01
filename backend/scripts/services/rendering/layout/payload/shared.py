@@ -11,6 +11,7 @@ from services.rendering.layout.payload.formula_cost import STYLE_ONLY_LATEX_COMM
 from services.rendering.layout.payload.formula_cost import token_units
 from services.rendering.layout.payload.text_common import COMPACT_SCALE
 from services.rendering.layout.payload.text_common import COMPACT_TRIGGER_RATIO
+from services.rendering.layout.payload.text_common import get_render_formula_map
 from services.rendering.layout.payload.text_common import get_render_protected_text
 from services.rendering.layout.payload.text_common import HEAVY_COMPACT_RATIO
 from services.rendering.layout.payload.text_common import is_flag_like_plain_text_block
@@ -42,6 +43,7 @@ __all__ = [
     "CONTINUATION_REBALANCE_TARGET_TOLERANCE",
     "CONTINUATION_REBALANCE_TOKEN_WINDOW",
     "GENERIC_LATEX_COMMAND_RE",
+    "get_render_formula_map",
     "get_render_protected_text",
     "HEAVY_COMPACT_RATIO",
     "is_flag_like_plain_text_block",

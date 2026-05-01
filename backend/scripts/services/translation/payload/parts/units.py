@@ -4,11 +4,13 @@ from services.translation.item_reader import item_block_kind
 import re
 
 from .common import (
+    effective_translation_unit_id,
     GROUP_ITEM_PREFIX,
     has_group_translation,
     has_item_translation,
+    item_source_text,
     is_group_unit_id,
-    translation_unit_id,
+    seed_group_translation_unit,
 )
 from .translation_units import refresh_payload_translation_units
 
@@ -74,7 +76,7 @@ def _is_micro_formula_segment(text: str) -> bool:
 
 
 def _effective_formula_segment_count(source_text: str) -> int:
-    source = source_text or ""
+    source = item_source_text({"translation_unit_protected_source_text": source_text}) or ""
     segments: list[str] = []
     cursor = 0
     for match in PROTECTED_FORMULA_RE.finditer(source):
@@ -135,7 +137,7 @@ def _build_group_translation_unit(unit_id: str, items: list[dict]) -> dict | Non
     next_term_index = 1
     first_item = items[0]
     for item in items:
-        source = item.get("protected_source_text", "")
+        source = str(item.get("protected_source_text", "") or "")
         local_map = item.get("formula_map", [])
         local_protected_map = item.get("protected_map", []) or []
         remapped_source = source
@@ -195,14 +197,14 @@ def _build_group_translation_unit(unit_id: str, items: list[dict]) -> dict | Non
 
     member_ids = [member.get("item_id", "") for member in items]
     for item in items:
-        item["translation_unit_kind"] = "group"
-        item["translation_unit_member_ids"] = member_ids
-        item["translation_unit_protected_source_text"] = combined_source
-        item["translation_unit_formula_map"] = formula_map
-        item["translation_unit_protected_map"] = protected_map
-        item["group_protected_source_text"] = combined_source
-        item["group_formula_map"] = formula_map
-        item["group_protected_map"] = protected_map
+        seed_group_translation_unit(
+            item,
+            unit_id=unit_id,
+            member_ids=member_ids,
+            protected_source_text=combined_source,
+            formula_map=formula_map,
+            protected_map=protected_map,
+        )
 
     return {
         "item_id": unit_id,
@@ -234,7 +236,7 @@ def pending_translation_items(payload: list[dict]) -> list[dict]:
     for item in payload:
         if not item.get("should_translate", True):
             continue
-        unit_id = translation_unit_id(item)
+        unit_id = effective_translation_unit_id(item)
         if is_group_unit_id(unit_id):
             groups.setdefault(unit_id, []).append(item)
             continue

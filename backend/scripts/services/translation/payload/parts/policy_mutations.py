@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from services.document_schema.semantics import build_role_profile
 from services.translation.item_reader import item_is_algorithm_like
 from services.translation.item_reader import item_block_kind
 from services.translation.item_reader import item_is_bodylike
@@ -35,7 +36,7 @@ def _is_default_translatable_text_item(item: dict) -> bool:
         return explicit_policy
     if item_block_kind(item) != "text":
         return False
-    role = item_structure_role(item)
+    role = str(build_role_profile(item).get("structure_role") or "")
     if item_is_bodylike(item):
         return True
     return role in _DEFAULT_TRANSLATABLE_TEXT_STRUCTURE_ROLES

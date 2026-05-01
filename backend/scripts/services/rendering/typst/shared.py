@@ -8,6 +8,7 @@ from foundation.config.output_layout import RENDERED_DIR_NAME
 from foundation.config.output_layout import TYPST_DIR_NAME
 from foundation.config import paths
 from services.rendering.formula.fallback.latex_normalizer import aggressively_simplify_formula_for_latex_math
+from services.rendering.layout.payload.shared import get_render_formula_map
 
 TYPST_OVERLAY_DIR = paths.OUTPUT_DIR / "typst_overlay"
 CMARKER_VERSION = "0.1.8"
@@ -56,7 +57,7 @@ def strip_formula_commands_for_item_at_index(translated_items: list[dict], targe
     for index, item in enumerate(translated_items):
         cloned = dict(item)
         if index == target_index:
-            formula_map = cloned.get("render_formula_map") or cloned.get("translation_unit_formula_map") or cloned.get("formula_map", [])
+            formula_map = get_render_formula_map(cloned)
             simplified_formula_map: list[dict] = []
             for entry in formula_map:
                 simplified_entry = dict(entry)

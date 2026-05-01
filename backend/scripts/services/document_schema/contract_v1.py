@@ -75,7 +75,7 @@ def _build_layout_role(block: dict) -> str:
     if block_type == "text":
         if sub_type in _TEXT_LAYOUT_SUBTYPE_MAP:
             return _TEXT_LAYOUT_SUBTYPE_MAP[sub_type]
-        if _is_caption_semantic(block) or sub_type in {"caption", "image_caption", "table_caption", "code_caption"}:
+        if _is_caption_semantic(block) or sub_type in {"caption", "figure_caption", "image_caption", "table_caption", "code_caption"}:
             return "caption"
         return "paragraph"
     return "unknown"

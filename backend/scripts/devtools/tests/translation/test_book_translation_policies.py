@@ -564,6 +564,66 @@ def test_apply_translation_policies_skips_non_body_text_blocks_by_default() -> N
     assert payload[2]["classification_label"] == "skip_text"
 
 
+def test_apply_translation_policies_translates_figure_caption_by_default() -> None:
+    payload = [
+        {
+            "item_id": "p004-b002",
+            "page_idx": 3,
+            "block_idx": 2,
+            "block_type": "text",
+            "block_kind": "text",
+            "layout_role": "caption",
+            "semantic_role": "caption",
+            "structure_role": "figure_caption",
+            "policy_translate": True,
+            "raw_block_type": "text",
+            "normalized_sub_type": "figure_caption",
+            "source_text": "Figure 3: Overall pipeline.",
+            "protected_source_text": "Figure 3: Overall pipeline.",
+            "metadata": {"structure_role": "figure_caption", "normalized_sub_type": "figure_caption"},
+            "classification_label": "",
+            "should_translate": True,
+            "skip_reason": "",
+            "translation_unit_kind": "single",
+            "translation_unit_protected_source_text": "Figure 3: Overall pipeline.",
+            "translation_unit_formula_map": [],
+            "formula_map": [],
+            "mixed_original_protected_source_text": "",
+            "translation_unit_protected_translated_text": "",
+            "translation_unit_translated_text": "",
+            "protected_translated_text": "",
+            "translated_text": "",
+            "group_protected_translated_text": "",
+            "group_translated_text": "",
+            "final_status": "",
+            "layout_zone": "non_flow",
+        },
+    ]
+
+    apply_translation_policies(
+        payload=payload,
+        mode="sci",
+        classify_batch_size=8,
+        workers=1,
+        api_key="",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com/v1",
+        skip_title_translation=False,
+        page_idx=3,
+        sci_cutoff_page_idx=None,
+        sci_cutoff_block_idx=None,
+        policy_config=build_translation_policy_config(
+            mode="sci",
+            skip_title_translation=False,
+            enable_reference_zone_skip=False,
+        ),
+    )
+
+    assert payload[0]["should_translate"] is True
+    assert payload[0]["skip_reason"] == ""
+    assert payload[0]["classification_label"] == ""
+
+
 def test_apply_mixed_literal_split_policy_forces_bad_ocr_prose_to_translate_all(monkeypatch) -> None:
     payload = [
         {

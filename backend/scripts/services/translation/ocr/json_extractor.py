@@ -64,6 +64,7 @@ ROLE_REFERENCE_ENTRY = "reference_entry"
 ROLE_TITLE = "title"
 ROLE_HEADING = "heading"
 ROLE_CAPTION = "caption"
+ROLE_FIGURE_CAPTION = "figure_caption"
 ROLE_IMAGE_CAPTION = "image_caption"
 ROLE_TABLE_CAPTION = "table_caption"
 ROLE_CODE_CAPTION = "code_caption"
@@ -74,6 +75,8 @@ PRIMARY_TRANSLATABLE_STRUCTURE_ROLES = {
     ROLE_BODY,
     ROLE_ABSTRACT,
     ROLE_HEADING,
+    ROLE_CAPTION,
+    ROLE_FIGURE_CAPTION,
     ROLE_OPTION_HEADER,
     ROLE_OPTION_DESCRIPTION,
     ROLE_EXAMPLE_INTRO,
@@ -83,6 +86,7 @@ DERIVED_STRUCTURE_ROLE_MAP = {
     "title": ROLE_TITLE,
     "heading": ROLE_HEADING,
     "caption": ROLE_CAPTION,
+    "figure_caption": ROLE_FIGURE_CAPTION,
     "image_caption": ROLE_IMAGE_CAPTION,
     "table_caption": ROLE_TABLE_CAPTION,
     "code_caption": ROLE_CODE_CAPTION,
@@ -420,6 +424,16 @@ def _is_translatable_page_item(item: TextItem) -> bool:
 
 PRIMARY_TRANSLATABLE_SEMANTIC_ROLES = {"body", "abstract"}
 PRIMARY_TRANSLATABLE_STRUCTURE_HINTS = {"body"}
+KEEP_ORIGIN_BLOCK_KINDS = {"formula"}
+KEEP_ORIGIN_SUB_TYPES = {"display_formula", "formula"}
+
+
+def _is_keep_origin_render_block(block: dict) -> bool:
+    if "skip_translation" in normalize_tags(block.get("tags", [])):
+        return False
+    block_kind = _block_kind(block)
+    sub_type = _block_sub_type(block)
+    return block_kind in KEEP_ORIGIN_BLOCK_KINDS or sub_type in KEEP_ORIGIN_SUB_TYPES
 
 
 def _is_primary_translatable_text_block(block: dict, data: dict) -> bool:
@@ -488,7 +502,7 @@ def extract_block_item(
         inside_algorithm=inside_algorithm,
         page_blocks=page_blocks,
         current_block_idx=block_idx,
-    ):
+    ) and not _is_keep_origin_render_block(block):
         return None
     block_type = _block_kind(block)
     structure_role = _seed_structure_role(block)

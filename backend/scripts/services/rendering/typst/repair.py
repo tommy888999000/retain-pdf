@@ -4,6 +4,7 @@ import json
 import os
 import re
 
+from services.rendering.layout.payload.shared import get_render_formula_map
 from services.rendering.layout.payload.shared import get_render_protected_text
 from services.translation.llm.shared.provider_runtime import request_chat_content
 
@@ -30,7 +31,7 @@ def _typst_repair_enabled() -> bool:
 
 
 def _item_formula_map(item: dict) -> list[dict]:
-    formula_map = item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("formula_map", [])
+    formula_map = get_render_formula_map(item)
     normalized: list[dict] = []
     for entry in formula_map:
         placeholder = str(entry.get("placeholder", "") or "").strip()

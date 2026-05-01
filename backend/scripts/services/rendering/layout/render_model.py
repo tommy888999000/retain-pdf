@@ -21,6 +21,8 @@ from services.rendering.layout.title_fit import apply_title_fit_budget_to_render
 from services.rendering.layout.typography.geometry import cover_bbox
 from services.rendering.layout.typography.geometry import inner_bbox
 from services.rendering.layout.typography.measurement import bbox_width
+from services.rendering.layout.payload.text_common import get_render_formula_map
+from services.rendering.layout.payload.text_common import get_render_protected_text
 from services.rendering.layout.payload.text_common import is_flag_like_plain_text_block
 from services.rendering.layout.payload.text_common import restore_render_protected_text
 from services.translation.item_reader import item_block_kind
@@ -170,17 +172,11 @@ def _layout_block_from_item(
     density_baseline: float,
     page_text_width_med: float,
 ) -> RenderLayoutBlock | None:
-    protected_text = str(
-        item.get("render_protected_text")
-        or item.get("translation_unit_protected_translated_text")
-        or item.get("protected_translated_text")
-        or ""
-    ).strip()
-    protected_text = restore_render_protected_text(protected_text, item)
+    protected_text = get_render_protected_text(item)
     if not protected_text:
         return None
 
-    formula_map = item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("formula_map", [])
+    formula_map = get_render_formula_map(item)
     body_candidate = is_body_text_candidate(item, page_text_width_med)
     item_with_flag = {**item, "_is_body_text_candidate": body_candidate}
     font_size_pt = estimate_font_size_pt(
@@ -263,13 +259,8 @@ def _with_render_fields(items: list[dict]) -> list[dict]:
     prepared: list[dict] = []
     for item in items:
         next_item = dict(item)
-        next_item["render_protected_text"] = restore_render_protected_text(str(
-            item.get("render_protected_text")
-            or item.get("translation_unit_protected_translated_text")
-            or item.get("protected_translated_text")
-            or ""
-        ).strip(), next_item)
-        next_item["render_formula_map"] = item.get("render_formula_map") or item.get("translation_unit_formula_map") or item.get("formula_map", [])
+        next_item["render_protected_text"] = get_render_protected_text(next_item)
+        next_item["render_formula_map"] = get_render_formula_map(next_item)
         prepared.append(next_item)
     return prepared
 

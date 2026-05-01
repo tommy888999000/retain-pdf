@@ -15,6 +15,7 @@ sys.path.insert(0, str(REPO_SCRIPTS_ROOT))
 
 from services.rendering.background.stage import build_clean_background_pdf
 from foundation.config import fonts
+from services.rendering.layout.payload.blocks import build_render_blocks
 from services.rendering.core.models import RenderLayoutBlock
 from services.rendering.core.models import RenderPageSpec
 from services.rendering.layout.render_model import build_render_page_specs
@@ -373,7 +374,7 @@ def test_redaction_shared_prefers_local_translated_text_over_group_text() -> Non
     assert get_item_translated_text(item) == "当前框自己的文本"
 
 
-def test_apply_source_page_overlay_redacts_text_on_image_page() -> None:
+def test_apply_source_page_overlay_visual_and_text_redacts_text_on_image_page() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         image_path = root / "bg.png"
@@ -399,7 +400,7 @@ def test_apply_source_page_overlay_redacts_text_on_image_page() -> None:
         ]
 
         before = page.get_text("text")
-        apply_source_page_overlay(page, translated_items)
+        apply_source_page_overlay(page, translated_items, redaction_strategy="visual_and_text")
         after = page.get_text("text")
 
         assert "Intermolecular Heck Coupling" in before
@@ -812,3 +813,35 @@ def test_prepare_render_payloads_preserves_direct_typst_formula_at_group_boundar
     assert all(chunk.count("$") % 2 == 0 for chunk in chunks)
     assert not any("$\\mathrm{Ph(" in chunk and "$\\mathrm{Ph(i-PrO)SiH_2}$" not in chunk for chunk in chunks)
     assert sum("$\\mathrm{Ph(i-PrO)SiH_2}$" in chunk for chunk in chunks) == 1
+
+
+def test_build_render_blocks_keeps_skip_origin_formula_blocks() -> None:
+    items = [
+        {
+            "item_id": "p005-b004",
+            "page_idx": 4,
+            "bbox": [44.938, 94.87, 352.34, 133.75],
+            "block_type": "formula",
+            "block_kind": "formula",
+            "normalized_sub_type": "display_formula",
+            "source_text": "$$ Y_{i}=Y_{i}(1)\\cdot D_{i}+Y_{i}(0)\\cdot(1-D_{i}). $$",
+            "protected_source_text": "$$ Y_{i}=Y_{i}(1)\\cdot D_{i}+Y_{i}(0)\\cdot(1-D_{i}). $$",
+            "translated_text": "",
+            "protected_translated_text": "",
+            "should_translate": False,
+            "classification_label": "skip_model_keep_origin",
+            "skip_reason": "skip_model_keep_origin",
+            "math_mode": "direct_typst",
+            "formula_map": [],
+            "translation_unit_kind": "single",
+            "translation_unit_protected_source_text": "$$ Y_{i}=Y_{i}(1)\\cdot D_{i}+Y_{i}(0)\\cdot(1-D_{i}). $$",
+            "translation_unit_protected_translated_text": "",
+            "translation_unit_formula_map": [],
+        }
+    ]
+
+    blocks = build_render_blocks(items, page_width=362.8349914550781, page_height=272.1260070800781)
+
+    assert len(blocks) == 1
+    assert blocks[0].plain_text
+    assert "Y_i(0)" in blocks[0].markdown_text or "\\lim" not in blocks[0].markdown_text

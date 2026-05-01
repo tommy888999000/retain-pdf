@@ -3,10 +3,10 @@ from __future__ import annotations
 import re
 
 from services.rendering.formula.core.markdown import build_plain_text
+from services.rendering.core.render_text import get_render_formula_map
+from services.rendering.core.render_text import get_render_protected_text
+from services.rendering.core.render_text import restore_render_protected_text
 from services.translation.item_reader import item_is_bodylike
-from services.translation.payload.formula_protection import PROTECTED_TOKEN_RE
-from services.translation.payload.formula_protection import protected_map_from_formula_map
-from services.translation.payload.formula_protection import restore_protected_tokens
 
 
 FORMULA_TOKEN_PATTERN = r"<[futnvc]\d+-[0-9a-z]{3}/>|\[\[FORMULA_\d+]]"
@@ -62,63 +62,6 @@ def normalize_render_text(text: str) -> str:
 
 def same_meaningful_render_text(source_text: str, translated_text: str) -> bool:
     return normalize_render_text(source_text) == normalize_render_text(translated_text)
-
-
-def _render_protected_map(item: dict) -> list[dict]:
-    unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
-    if unit_kind == "single":
-        protected_map = (
-            item.get("render_formula_map")
-            or item.get("protected_map")
-            or item.get("formula_map")
-            or []
-        )
-        if protected_map and isinstance(protected_map, list) and any(isinstance(entry, dict) and "token_tag" in entry for entry in protected_map):
-            return list(protected_map)
-        return protected_map_from_formula_map(protected_map if isinstance(protected_map, list) else [])
-    protected_map = (
-        item.get("translation_unit_protected_map")
-        or item.get("render_formula_map")
-        or item.get("translation_unit_formula_map")
-        or item.get("protected_map")
-        or item.get("formula_map")
-        or []
-    )
-    if protected_map and isinstance(protected_map, list) and any(isinstance(entry, dict) and "token_tag" in entry for entry in protected_map):
-        return list(protected_map)
-    return protected_map_from_formula_map(protected_map if isinstance(protected_map, list) else [])
-
-
-def restore_render_protected_text(text: str, item: dict) -> str:
-    current = str(text or "").strip()
-    if not current or not PROTECTED_TOKEN_RE.search(current):
-        return current
-    restored = restore_protected_tokens(current, _render_protected_map(item))
-    return str(restored or "").strip()
-
-
-def get_render_protected_text(item: dict) -> str:
-    if "render_protected_text" in item:
-        return restore_render_protected_text(str(item.get("render_protected_text", "") or "").strip(), item)
-    unit_kind = str(item.get("translation_unit_kind", "") or "").strip().lower()
-    if unit_kind == "single":
-        return restore_render_protected_text(
-            str(
-                item.get("protected_translated_text")
-                or item.get("translated_text")
-                or item.get("translation_unit_protected_translated_text")
-                or ""
-            ).strip(),
-            item,
-        )
-    return restore_render_protected_text(
-        str(
-        item.get("translation_unit_protected_translated_text")
-        or item.get("protected_translated_text")
-        or ""
-        ).strip(),
-        item,
-    )
 
 
 def source_word_count(item: dict) -> int:

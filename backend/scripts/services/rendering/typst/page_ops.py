@@ -37,6 +37,7 @@ def apply_source_page_overlay(
     translated_items: list[dict],
     *,
     cover_only: bool = False,
+    redaction_strategy: str | None = None,
 ) -> dict[str, object]:
     started = time.perf_counter()
     strip_page_links(page)
@@ -44,15 +45,20 @@ def apply_source_page_overlay(
         replace_background_image_page(page, translated_items)
         # Pseudo-scan pages can still carry visible vector text above the background image.
         # After patching the image itself, remove any touched source text within translated rects.
-        redaction = redact_translated_text_areas(page, translated_items, cover_only=False)
+        redaction = redact_translated_text_areas(page, translated_items, cover_only=False, strategy=redaction_strategy)
         redaction["elapsed_seconds"] = time.perf_counter() - started
         redaction["source_overlay_mode"] = "background_image"
         return redaction
 
     vector_cover_only = should_use_cover_only_for_vector_text(page, translated_items)
-    redaction = redact_translated_text_areas(page, translated_items, cover_only=cover_only or vector_cover_only)
+    redaction = redact_translated_text_areas(
+        page,
+        translated_items,
+        cover_only=cover_only or vector_cover_only,
+        strategy=redaction_strategy,
+    )
     redaction["elapsed_seconds"] = time.perf_counter() - started
-    redaction["source_overlay_mode"] = "cover_only" if (cover_only or vector_cover_only) else "standard"
+    redaction["source_overlay_mode"] = str(redaction.get("strategy") or redaction.get("route") or "visual_only")
     return redaction
 
 
@@ -64,6 +70,7 @@ def overlay_pages_from_single_pdf(
     *,
     cover_only: bool = False,
     apply_source_overlay: bool = True,
+    redaction_strategy: str | None = None,
 ) -> dict[str, object]:
     overlay_doc = fitz.open(overlay_pdf_path)
     diagnostics = {
@@ -90,7 +97,12 @@ def overlay_pages_from_single_pdf(
                 "overlay_merge_elapsed_seconds": 0.0,
             }
             if apply_source_overlay:
-                redaction = apply_source_page_overlay(page, translated_pages[page_idx], cover_only=cover_only)
+                redaction = apply_source_page_overlay(
+                    page,
+                    translated_pages[page_idx],
+                    cover_only=cover_only,
+                    redaction_strategy=redaction_strategy,
+                )
                 page_diag.update(redaction)
                 diagnostics["source_overlay_elapsed_seconds"] += float(redaction.get("elapsed_seconds", 0.0) or 0.0)
                 diagnostics["raw_removable_rects"] += int(redaction.get("raw_removable_rects", 0) or 0)

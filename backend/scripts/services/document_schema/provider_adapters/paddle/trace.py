@@ -17,10 +17,10 @@ def build_derived(raw_label: str, *, sub_type: str = "") -> dict:
         derived["by"] = "provider_rule"
         derived["confidence"] = 0.98
     elif label == "figure_title":
-        derived["role"] = "caption"
+        derived["role"] = "figure_caption"
         derived["by"] = "provider_rule"
         derived["confidence"] = 0.95
-        if sub_type in {"table_caption", "image_caption", "code_caption"}:
+        if sub_type in {"figure_caption", "table_caption", "image_caption", "code_caption"}:
             derived["role"] = sub_type
     elif label in {"header", "footer"}:
         derived["role"] = label

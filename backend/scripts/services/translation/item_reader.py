@@ -1,14 +1,8 @@
 from __future__ import annotations
 
+from services.document_schema.semantics import build_role_profile
 
 _TEXTUAL_LAYOUT_ROLES = {"title", "heading", "paragraph", "list_item", "caption"}
-_BODYLIKE_LAYOUT_ROLES = {"paragraph", "list_item"}
-_BODYLIKE_SEMANTIC_ROLES = {"body", "abstract"}
-_BODYLIKE_STRUCTURE_ROLES = {"", "body", "abstract", "example_line", "option_header", "option_description", "example_intro"}
-_CAPTION_SEMANTIC_ROLES = {"caption"}
-_CAPTION_LAYOUT_ROLES = {"caption"}
-_TITLE_LIKE_LAYOUT_ROLES = {"title", "heading"}
-_REFERENCE_SEMANTIC_ROLES = {"reference"}
 
 
 def _first_non_empty_str(*values: object) -> str:
@@ -82,11 +76,7 @@ def item_effective_role(item: dict | None) -> str:
 
 
 def item_policy_translate(item: dict | None) -> bool | None:
-    source = item or {}
-    explicit = source.get("policy_translate")
-    if isinstance(explicit, bool):
-        return explicit
-    return None
+    return build_role_profile(item).get("policy_translate")  # type: ignore[return-value]
 
 
 def item_reading_order(item: dict | None) -> int:
@@ -107,36 +97,25 @@ def item_tags(item: dict | None) -> set[str]:
 
 
 def item_is_caption_like(item: dict | None) -> bool:
-    if item_layout_role(item) in _CAPTION_LAYOUT_ROLES:
-        return True
-    if item_semantic_role(item) in _CAPTION_SEMANTIC_ROLES:
-        return True
-    return False
+    return bool(build_role_profile(item).get("is_caption_like"))
 
 
 def item_is_reference_like(item: dict | None) -> bool:
-    if item_semantic_role(item) in _REFERENCE_SEMANTIC_ROLES:
-        return True
-    return item_structure_role(item) == "reference_entry"
+    return bool(build_role_profile(item).get("is_reference_entry"))
 
 
 def item_is_reference_heading_like(item: dict | None) -> bool:
-    if item_structure_role(item) == "reference_heading":
-        return True
-    return item_semantic_role(item) == "reference" and item_layout_role(item) == "heading"
+    return bool(build_role_profile(item).get("is_reference_heading"))
 
 
 def item_is_algorithm_like(item: dict | None) -> bool:
-    if item_normalized_sub_type(item) == "algorithm":
+    if bool(build_role_profile(item).get("is_algorithm")):
         return True
     return item_raw_block_type(item) == "algorithm"
 
 
 def item_is_title_like(item: dict | None) -> bool:
-    if item_layout_role(item) in _TITLE_LIKE_LAYOUT_ROLES:
-        return True
-    structure_role = item_structure_role(item)
-    return structure_role in {"title", "heading", "section_heading"}
+    return bool(build_role_profile(item).get("is_title_like"))
 
 
 def item_is_textual(item: dict | None) -> bool:
@@ -146,22 +125,13 @@ def item_is_textual(item: dict | None) -> bool:
 
 
 def item_is_plain_text_block(item: dict | None) -> bool:
-    if item_block_kind(item) != "text":
-        return False
-    if item_is_caption_like(item) or item_is_reference_like(item) or item_is_title_like(item):
-        return False
-    return True
+    return item_block_kind(item) == "text" and not (
+        item_is_caption_like(item) or item_is_reference_like(item) or item_is_title_like(item)
+    )
 
 
 def item_is_bodylike(item: dict | None) -> bool:
-    if not item_is_plain_text_block(item):
-        return False
-    semantic_role = item_semantic_role(item)
-    if semantic_role in _BODYLIKE_SEMANTIC_ROLES:
-        return True
-    if item_structure_role(item) in _BODYLIKE_STRUCTURE_ROLES:
-        return True
-    return item_layout_role(item) in _BODYLIKE_LAYOUT_ROLES
+    return item_is_plain_text_block(item) and bool(build_role_profile(item).get("is_bodylike"))
 
 
 __all__ = [

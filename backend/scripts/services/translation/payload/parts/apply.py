@@ -5,8 +5,8 @@ from ..formula_protection import restore_inline_formulas
 from ..formula_protection import restore_protected_tokens
 from .common import (
     clear_translation_fields,
+    effective_translation_unit_id,
     is_group_unit_id,
-    translation_unit_id,
 )
 from .translation_units import refresh_payload_translation_units
 
@@ -173,7 +173,7 @@ def apply_translated_text_map(payload: list[dict], translated: dict) -> None:
     refresh_payload_translation_units(payload)
     group_items: dict[str, list[dict]] = {}
     for item in payload:
-        unit_id = translation_unit_id(item)
+        unit_id = effective_translation_unit_id(item)
         if is_group_unit_id(unit_id):
             group_items.setdefault(unit_id, []).append(item)
 

@@ -15,6 +15,7 @@ def redact_translated_text_areas(
     translated_items: list[dict],
     fill_background: bool | None = None,
     cover_only: bool = False,
+    strategy: str | None = None,
     diagnostics: dict[str, object] | None = None,
 ) -> dict[str, object]:
     image_page = page_has_large_background_image(page)
@@ -28,12 +29,19 @@ def redact_translated_text_areas(
             "fast_page_cover_only": False,
             "item_fast_cover_count": 0,
             "route": "empty",
+            "strategy": strategy or "auto",
         }
         if diagnostics is not None:
             diagnostics.update(result)
         return result
 
-    result = apply_redaction_route(page, valid_items, fill_background=fill_background, cover_only=cover_only)
+    result = apply_redaction_route(
+        page,
+        valid_items,
+        fill_background=fill_background,
+        cover_only=cover_only,
+        strategy=strategy,
+    )
     if diagnostics is not None:
         diagnostics.update(result)
     return result

@@ -63,6 +63,7 @@ def overlay_pages_via_page_fallback(
     temp_root: Path | None = None,
     cover_only: bool = False,
     apply_source_overlay: bool = True,
+    redaction_strategy: str | None = None,
 ) -> dict[str, object]:
     overlay_paths: dict[int, Path] = {}
     page_compile_diagnostics: dict[int, dict[str, object]] = {}
@@ -134,7 +135,12 @@ def overlay_pages_via_page_fallback(
         if compile_diag is not None:
             diagnostics["page_compile_diagnostics"].append(compile_diag)
         if apply_source_overlay:
-            redaction = apply_source_page_overlay(page, translated_pages[page_idx], cover_only=cover_only)
+            redaction = apply_source_page_overlay(
+                page,
+                translated_pages[page_idx],
+                cover_only=cover_only,
+                redaction_strategy=redaction_strategy,
+            )
             page_diag.update(redaction)
             diagnostics["source_overlay_elapsed_seconds"] += float(redaction.get("elapsed_seconds", 0.0) or 0.0)
             diagnostics["raw_removable_rects"] += int(redaction.get("raw_removable_rects", 0) or 0)

@@ -4,6 +4,7 @@ STYLE_HINTS_BY_ROLE = {
     "abstract": "This block is an abstract sentence or paragraph. Translate it as compact academic summary prose.",
     "heading": "This block is a section heading. Translate it as a short academic heading, not as a full sentence.",
     "title": "This block is a document or section title. Translate it as a concise formal title.",
+    "figure_caption": "This block is a figure-style caption or note. Keep caption style concise; preserve numbering, labels, and visual references.",
     "image_caption": "This block is a figure caption. Keep caption style concise; preserve figure numbering/letters and visual references.",
     "table_caption": "This block is a table caption. Keep caption style concise; preserve table numbering and parameter symbols.",
     "code_caption": "This block is a code/listing caption. Keep listing identifiers and code names unchanged where appropriate.",
