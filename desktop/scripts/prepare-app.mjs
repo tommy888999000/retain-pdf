@@ -375,6 +375,35 @@ function bundledPythonSitePackages(root) {
   return matches;
 }
 
+function bundledPythonLibDynload(root) {
+  if (!root || !fs.existsSync(root) || targetPlatform !== "darwin") {
+    return [];
+  }
+  const pythonHome = resolveBundledPythonHome(root);
+  const libRoot = pythonHome ? path.join(pythonHome, "lib") : "";
+  if (!libRoot || !fs.existsSync(libRoot)) {
+    return [];
+  }
+  const matches = [];
+  for (const entry of fs.readdirSync(libRoot)) {
+    if (!/^python\d+\.\d+$/.test(entry)) {
+      continue;
+    }
+    const libDynload = path.join(libRoot, entry, "lib-dynload");
+    if (fs.existsSync(libDynload)) {
+      matches.push(libDynload);
+    }
+  }
+  return matches;
+}
+
+function bundledPythonImportPaths(root) {
+  return [
+    ...bundledPythonSitePackages(root),
+    ...bundledPythonLibDynload(root),
+  ];
+}
+
 function resolveBundledPythonHome(root) {
   if (!root || !fs.existsSync(root)) {
     return "";
@@ -414,7 +443,7 @@ function verifyBundledPythonRuntime(root) {
     PYTHONUNBUFFERED: "1",
     PYTHONUTF8: "1",
     PYTHONDONTWRITEBYTECODE: "1",
-    PYTHONPATH: bundledPythonSitePackages(root).join(path.delimiter),
+    PYTHONPATH: bundledPythonImportPaths(root).join(path.delimiter),
   };
   if (bundledPythonHome) {
     env.PYTHONHOME = bundledPythonHome;
@@ -446,6 +475,7 @@ function verifyBundledPythonRuntime(root) {
     pythonCommand,
     pythonHome: bundledPythonHome,
     sitePackages: bundledPythonSitePackages(root),
+    importPaths: bundledPythonImportPaths(root),
     importCheck: probe.stdout.trim() || "python_bundle_import_check=ok",
   };
 }
@@ -760,6 +790,9 @@ const manifest = {
     : null,
   bundledPythonSitePackages: bundledPythonDiagnostics
     ? bundledPythonDiagnostics.sitePackages.map((entry) => path.relative(outputBackendRoot, entry))
+    : [],
+  bundledPythonImportPaths: bundledPythonDiagnostics
+    ? bundledPythonDiagnostics.importPaths.map((entry) => path.relative(outputBackendRoot, entry))
     : [],
   bundledPythonImportCheck: bundledPythonDiagnostics ? bundledPythonDiagnostics.importCheck : null,
   typstBundled: fs.existsSync(path.join(outputBackendRoot, "typst")),

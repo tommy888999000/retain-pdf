@@ -463,10 +463,10 @@ function probePythonRuntime(runtime, options = {}) {
       PYTHONUNBUFFERED: "1",
       PYTHONUTF8: "1",
     };
-    const sitePackages = bundledPythonSitePackages(runtime.bundledHome);
-    if (sitePackages.length > 0) {
+    const pythonImportPaths = bundledPythonImportPaths(runtime.bundledHome);
+    if (pythonImportPaths.length > 0) {
       env.PYTHONPATH = [
-        ...sitePackages,
+        ...pythonImportPaths,
         process.env.PYTHONPATH || "",
       ].filter(Boolean).join(path.delimiter);
     }
@@ -555,6 +555,36 @@ function bundledPythonSitePackages(bundledHome) {
     }
   }
   return matches;
+}
+
+function bundledPythonLibDynload(bundledHome) {
+  if (!bundledHome || !fs.existsSync(bundledHome) || process.platform !== "darwin") {
+    return [];
+  }
+  const pythonHome = resolveBundledPythonHome(bundledHome);
+  const libRoot = pythonHome ? path.join(pythonHome, "lib") : "";
+  if (!libRoot || !fs.existsSync(libRoot)) {
+    return [];
+  }
+
+  const matches = [];
+  for (const entry of fs.readdirSync(libRoot)) {
+    if (!/^python\d+\.\d+$/.test(entry)) {
+      continue;
+    }
+    const libDynload = path.join(libRoot, entry, "lib-dynload");
+    if (fs.existsSync(libDynload)) {
+      matches.push(libDynload);
+    }
+  }
+  return matches;
+}
+
+function bundledPythonImportPaths(bundledHome) {
+  return [
+    ...bundledPythonSitePackages(bundledHome),
+    ...bundledPythonLibDynload(bundledHome),
+  ];
 }
 
 function resolveTypstBinary(backendRoot) {
@@ -723,7 +753,7 @@ async function startBundledBackend() {
     PYTHON_BIN: pythonRuntime.command,
     PYTHONPATH: [
       scriptsDir,
-      ...bundledPythonSitePackages(pythonRuntime.bundledHome),
+      ...bundledPythonImportPaths(pythonRuntime.bundledHome),
       process.env.PYTHONPATH || "",
     ].filter(Boolean).join(path.delimiter),
     PYTHONUNBUFFERED: "1",
