@@ -2,6 +2,7 @@ server {
   listen 80;
   server_name _;
 
+  include /etc/nginx/mime.types;
   include /etc/nginx/conf.d/mjs.types.conf;
 
   root /usr/share/nginx/html;
