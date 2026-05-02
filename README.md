@@ -142,6 +142,16 @@ docker compose ps
 - [wxyhgk/retainpdf-app](https://hub.docker.com/r/wxyhgk/retainpdf-app)
 - [wxyhgk/retainpdf-web](https://hub.docker.com/r/wxyhgk/retainpdf-web)
 
+## 交流群
+
+如果你在使用、部署或二次开发 RetainPDF 时遇到问题，欢迎加入 QQ 交流群一起讨论。
+
+- QQ 群号：`1101779791`
+
+<p align="center">
+  <img src="image/QQ_Group.JPG" alt="RetainPDF QQ 交流群二维码" width="280" />
+</p>
+
 ## 开发者
 
 
